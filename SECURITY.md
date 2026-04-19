@@ -8,7 +8,7 @@ If you discover a security vulnerability in Monogram, please report it
 **How to report:**
 
 - GitHub Security Advisory (preferred):
-  https://github.com/<your-github-user>/monogram/security/advisories/new
+  https://github.com/HarimxChoi/monogram/security/advisories/new
 - Email: `security@monogram.example` (you can encrypt with the PGP key
   in `docs/security-pgp.txt` if the issue is sensitive)
 
@@ -62,9 +62,9 @@ Bugs that are **not** security issues (please file as normal issues):
 ## Scope
 
 In scope:
-- The `monogram` Python package as published on PyPI
-- Code in the `<your-github-user>/monogram` repository
-- The `<your-github-user>/monogram-obsidian` companion plugin
+- The `mono-gram` Python package as published on PyPI
+- Code in the `HarimxChoi/monogram` repository
+- The `HarimxChoi/monogram` Obsidian plugin (shipped from the same repo)
 
 Out of scope:
 - Issues in upstream dependencies (report to them directly)

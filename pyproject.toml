@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "monogram"
+name = "mono-gram"
 version = "0.8.0.dev0"
 description = "Personal LLM-powered knowledge and project vault — Telegram → structured markdown"
 readme = "README.md"
@@ -62,15 +62,15 @@ webui-gcs       = ["google-cloud-storage>=2.10"]
 webui-self-host = ["aiohttp>=3.9"]
 dev             = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow>=10.0", "ruff>=0.5", "pip-audit>=2.7"]
 eval            = ["pytest>=7.4", "pytest-xdist>=3.5", "pytest-asyncio>=0.23"]
-eval-nlp        = ["monogram[eval]", "spacy>=3.7"]
+eval-nlp        = ["mono-gram[eval]", "spacy>=3.7"]
 
 # v0.8: ingestion extras — install what you need
-#   pip install 'monogram[ingestion-video]'   # YouTube, Instagram, TikTok
-#   pip install 'monogram[ingestion-research]'  # arXiv + Semantic Scholar
-#   pip install 'monogram[ingestion-pdf]'     # native PDF fast path
-#   pip install 'monogram[ingestion-pdf-complex]'  # Marker for complex PDFs
-#   pip install 'monogram[ingestion-office]'  # docx/pptx/xlsx via MarkItDown
-#   pip install 'monogram[ingestion-all]'     # everything except complex-pdf + whisper
+#   pip install 'mono-gram[ingestion-video]'   # YouTube, Instagram, TikTok
+#   pip install 'mono-gram[ingestion-research]'  # arXiv + Semantic Scholar
+#   pip install 'mono-gram[ingestion-pdf]'     # native PDF fast path
+#   pip install 'mono-gram[ingestion-pdf-complex]'  # Marker for complex PDFs
+#   pip install 'mono-gram[ingestion-office]'  # docx/pptx/xlsx via MarkItDown
+#   pip install 'mono-gram[ingestion-all]'     # everything except complex-pdf + whisper
 ingestion-video    = ["yt-dlp>=2026.1", "youtube-transcript-api>=1.0"]
 ingestion-research = ["arxiv>=2.0", "httpx>=0.25"]
 ingestion-pdf      = ["pymupdf4llm>=0.0.17"]
@@ -78,10 +78,10 @@ ingestion-pdf-complex = ["marker-pdf>=1.0"]
 ingestion-office   = ["markitdown>=0.0.1"]
 ingestion-whisper  = ["openai-whisper>=20231117"]
 ingestion-all = [
-    "monogram[ingestion-video]",
-    "monogram[ingestion-research]",
-    "monogram[ingestion-pdf]",
-    "monogram[ingestion-office]",
+    "mono-gram[ingestion-video]",
+    "mono-gram[ingestion-research]",
+    "mono-gram[ingestion-pdf]",
+    "mono-gram[ingestion-office]",
 ]
 
 [project.scripts]

@@ -30,7 +30,7 @@ EXPECTED_TOOLS = [
 async def verify() -> int:
     monogram_bin = shutil.which("monogram")
     if not monogram_bin:
-        print("FAIL  monogram binary not on PATH (run `pip install -e .` or `pipx install monogram`)")
+        print("FAIL  monogram binary not on PATH (run `pip install -e .` or `pipx install mono-gram`)")
         return 1
     print(f"OK    monogram binary: {monogram_bin}")
 

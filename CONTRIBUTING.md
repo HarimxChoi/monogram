@@ -42,7 +42,7 @@ PRs implementing any of the above will be closed with this link.
 ## Development setup
 
 ```bash
-git clone https://github.com/<your-github-user>/monogram
+git clone https://github.com/HarimxChoi/monogram
 cd monogram
 pip install -e '.[dev,eval]'
 
@@ -128,6 +128,6 @@ good faith, don't harass anyone.
 
 ## Questions?
 
-Open a [Discussion](https://github.com/<your-github-user>/monogram/discussions)
-for design questions, or an [Issue](https://github.com/<your-github-user>/monogram/issues)
+Open a [Discussion](https://github.com/HarimxChoi/monogram/discussions)
+for design questions, or an [Issue](https://github.com/HarimxChoi/monogram/issues)
 for bug reports and feature requests.

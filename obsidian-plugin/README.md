@@ -7,7 +7,7 @@ poller picks it up within 2 minutes and runs it through the pipeline.
 ## Manual install (v0.5)
 
 1. Download the `monogram-quick-capture-<version>.zip` from
-   [GitHub Releases](https://github.com/<your-github-user>/monogram/releases).
+   [GitHub Releases](https://github.com/HarimxChoi/monogram/releases).
 2. Unzip into `<your-vault>/.obsidian/plugins/monogram-quick-capture/`
    (create the directory if missing).
 3. In Obsidian: **Settings → Community plugins → Enable** and toggle

@@ -2,8 +2,8 @@
 
 > Drop into Telegram. Auto-save as wiki. Wake up to a project dashboard.
 
-[![tests](https://github.com/<your-github-user>/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/<your-github-user>/monogram/actions/workflows/tests.yml)
-[![eval](https://github.com/<your-github-user>/monogram/actions/workflows/eval.yml/badge.svg)](https://github.com/<your-github-user>/monogram/actions/workflows/eval.yml)
+[![tests](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml)
+[![eval](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
@@ -89,11 +89,14 @@ Python 3.10+, a GitHub account, a Telegram account, one LLM API key
 (Gemini free tier is sufficient).
 
 ```bash
-pip install monogram
+pip install mono-gram
 monogram init            # interactive wizard
 monogram auth            # one-time Telegram auth
 monogram run             # listener + bot (leave running)
 ```
+
+> The pip package is `mono-gram`; the CLI command remains `monogram`.
+> The Python import path is also `monogram` — `from monogram import ...`.
 
 Drop something into Saved Messages. Within seconds a commit appears on
 your vault repo. End-to-end walkthrough (GCP free tier → PyPI): **[deploying.md](deploying.md)**.
@@ -101,8 +104,8 @@ your vault repo. End-to-end walkthrough (GCP free tier → PyPI): **[deploying.m
 Optional extras:
 
 ```bash
-pip install 'monogram[ingestion-all]'   # YouTube, arXiv, PDF, Office, HWP
-pip install 'monogram[eval]'            # cassette-replay eval harness
+pip install 'mono-gram[ingestion-all]'   # YouTube, arXiv, PDF, Office, HWP
+pip install 'mono-gram[eval]'            # cassette-replay eval harness
 ```
 
 ## Web UI

@@ -243,11 +243,11 @@ sudo apt install -y poppler-utils
 python3.12 -m venv ~/monogram-env
 source ~/monogram-env/bin/activate
 
-# Once v1.0 is on PyPI:
-pip install 'monogram[ingestion-all]'
+# Once v1.0 is on PyPI (pip package name is mono-gram; CLI stays monogram):
+pip install 'mono-gram[ingestion-all]'
 
 # Until then, install from git:
-pip install -e 'git+https://github.com/<your-github-user>/monogram.git#egg=monogram[ingestion-all]'
+pip install -e 'git+https://github.com/HarimxChoi/monogram.git#egg=mono-gram[ingestion-all]'
 ```
 
 Confirm the install:
@@ -499,7 +499,10 @@ to **TestPyPI only**. Verify in a clean venv:
 ```bash
 python3.12 -m venv /tmp/test-monogram
 source /tmp/test-monogram/bin/activate
-pip install -i https://test.pypi.org/simple/ monogram==1.0.0rc1
+pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  mono-gram==1.0.0rc1
 monogram --version
 ```
 
@@ -578,7 +581,7 @@ truncate -s 0 ~/.config/monogram/*.log
 
 ## 12 · Monthly maintenance (10 min)
 
-- [ ] `pip install --upgrade monogram` (after v1.0.0 is on PyPI)
+- [ ] `pip install --upgrade mono-gram` (after v1.0.0 is on PyPI)
 - [ ] Check `monogram stats --window 30` — any latency regression?
 - [ ] Check PAT expiration dates (both vault + backup)
 - [ ] Confirm backup-verify CI ran and was green
