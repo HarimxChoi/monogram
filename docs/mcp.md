@@ -180,7 +180,7 @@ Same permission model as Telegram bot, just surfaced through different UI.
 ## 6. Distribution
 
 ```
-pip install monogram
+pip install mono-gram
 monogram init
 monogram mcp-serve           # local stdio server
 ```

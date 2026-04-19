@@ -11,6 +11,13 @@ This release consolidates the v0.8+v0.9+v1.0 scope from the original
 roadmap into a single version, reflecting a ship-all-now decision after
 the v0.7 eval harness landed.
 
+### Packaging
+
+- **Pip distribution name is now `mono-gram`.** The name `monogram` is on
+  PyPI's stopwords/denylist, so the package ships as `mono-gram`. CLI
+  command (`monogram ...`), Python import path (`from monogram import ...`),
+  and GitHub repo name all remain `monogram`. Install: `pip install mono-gram`.
+
 ### Added
 
 - **Ingestion pipeline** (`src/monogram/ingestion/`):

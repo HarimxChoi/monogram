@@ -3,9 +3,10 @@ name: publish
 # Triggered by tag push matching v0.*.*
 # Requires PyPI Trusted Publisher configuration:
 #   - https://pypi.org/manage/account/publishing/
-#   - Repository: <your-github-user>/monogram
+#   - Project name: mono-gram   (CLI command + import path stay `monogram`)
+#   - Repository: HarimxChoi/monogram
 #   - Workflow: publish.yml
-#   - Environment: pypi
+#   - Environment: pypi  (stable) / testpypi (pre-release tags)
 # Attestations are generated automatically by pypa/gh-action-pypi-publish
 # (default since 2024 for Trusted Publishing flows).
 
