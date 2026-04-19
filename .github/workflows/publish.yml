@@ -22,7 +22,7 @@ jobs:
     name: Build distribution
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Verify tag matches pyproject.toml version
         # Catches: tag v1.0.0 on a commit where pyproject still says
@@ -36,7 +36,7 @@ jobs:
           fi
           echo "Version match confirmed: $TAG_VERSION"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install build
@@ -44,7 +44,7 @@ jobs:
       - name: Build sdist + wheel
         run: python -m build
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -63,7 +63,7 @@ jobs:
       id-token: write  # REQUIRED for OIDC Trusted Publishing
     steps:
       - name: Download dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -82,7 +82,7 @@ jobs:
       id-token: write
     steps:
       - name: Download dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
