@@ -181,10 +181,3 @@ Roadmap: see CHANGELOG.md for shipped features.
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
----
-
-Existing PKM tools treat capture as easy and organization as hard.
-In practice it's the opposite — I always capture, rarely organize.
-Monogram is the LLM pipeline that organizes as a side-effect of
-capture.
