@@ -1,0 +1,18 @@
+{
+  "a8251335e32fe5da": {
+    "latency_ms": 724,
+    "model": "gemini/gemini-2.5-flash-lite",
+    "prompt_hash": "a8251335e32fe5da",
+    "prompt_sample": "Payload:\nmark paper-a phase 0 done\n\nPlan: {\"operation\":\"ingest_drop\",\"preload_files\":[],\"skip_stages\":[],\"notes\":\"\"}",
+    "recorded_at": "2026-04-19T03:21:14.967793+00:00",
+    "recorded_on_provider": "gemini",
+    "response_content": "{\n  \"drop_type\": \"task\",\n  \"target_kind\": \"project\",\n  \"slug\": \"paper-a\",\n  \"confidence\": \"high\",\n  \"reasoning\": \"User is marking a phase of their own project 'paper-a' as done.\",\n  \"life_area\": null,\n  \"tags\": []\n}",
+    "schema_hash": "{\"properties\": {\"confidence\": {\"enum\": [\"high\", \"medium\", \"low\"], \"title\": \"Confidence\", \"type\": \"string\"}, \"drop_type\": {\"enum\": [\"task\", \"deadline\", \"technical_link\", \"paper\", \"personal_thought\", \"life_item\", \"credential\", \"query\", \"ambiguous\"], \"title\": \"Drop Type\", \"type\": \"string\"}, \"life_area\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Life Area\"}, \"reasoning\": {\"description\": \"One-line rationale (logged, not shown to user)\", \"title\": \"Reasoning\", \"type\": \"string\"}, \"slug\": {\"title\": \"Slug\", \"type\": \"string\"}, \"tags\": {\"items\": {\"type\": \"string\"}, \"title\": \"Tags\", \"type\": \"array\"}, \"target_kind\": {\"enum\": [\"project\", \"life\", \"wiki\", \"credential\", \"daily_only\"], \"title\": \"Target Kind\", \"type\": \"string\"}}, \"required\": [\"drop_type\", \"target_kind\", \"slug\", \"confidence\", \"reasoning\"], \"title\": \"Classification\", \"type\": \"object\"}",
+    "temperature": 0.3,
+    "usage": {
+      "completion_tokens": 80,
+      "prompt_tokens": 678,
+      "total_tokens": 758
+    }
+  }
+}

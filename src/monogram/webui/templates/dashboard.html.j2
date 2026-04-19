@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monogram — {{ meta.vault }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>{{ tokens_css | safe }}</style>
+<style>{{ components_css | safe }}</style>
+</head>
+<body>
+
+{% include "partials/topbar.html.j2" %}
+{% include "partials/critpath.html.j2" %}
+
+<div class="main">
+  {% include "partials/board.html.j2" %}
+  {% include "partials/life.html.j2" %}
+  {% include "partials/wiki.html.j2" %}
+  {% include "partials/today.html.j2" %}
+</div>
+
+<div class="footer">
+  <div class="footer__left">
+    <span>monogram {{ meta.version }}</span>
+    <span>·</span>
+    <span>generated {{ meta.generated_iso }}</span>
+  </div>
+  <div class="footer__right">
+    <span>{{ meta.vault }}</span>
+  </div>
+</div>
+
+<script>{{ main_js | safe }}</script>
+</body>
+</html>

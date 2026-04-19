@@ -1,0 +1,15 @@
+.env
+*.session
+*.session-journal
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# v0.7: webui GCS backend service account (do not commit!)
+gcp-sa.json
+# v0.7: eval cassettes contain real API responses; managed in CI separately
+# evals/cassettes/   # intentionally NOT gitignored — they're the test fixtures

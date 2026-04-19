@@ -1,0 +1,5 @@
+telethon
+aiogram>=3.0
+google-generativeai
+PyGithub
+python-dotenv

@@ -1,0 +1,52 @@
+/* Monogram — design tokens (v0.6). Source of truth for colors + type. */
+:root {
+  /* Base surfaces */
+  --bg-void:    #070910;
+  --bg-base:    #0A0C10;
+  --bg-surface: #0F1217;
+  --bg-card:    #141821;
+  --bg-raised:  #1A1F29;
+  --bg-hover:   #1E2430;
+
+  /* Borders */
+  --border:      #232833;
+  --border-hi:   #323844;
+  --border-glow: rgba(0, 212, 168, 0.18);
+
+  /* Text */
+  --text-hi:    #E6EDF3;
+  --text-mid:   #8B949E;
+  --text-lo:    #565C66;
+  --text-ghost: #3A404A;
+
+  /* Semantic state */
+  --accent:     #00D4A8;
+  --accent-dim: #00A082;
+  --warn:       #E8AE2B;
+  --critical:   #F14C5E;
+  --info:       #5B7FFF;
+  --muted:      #565C66;
+
+  /* Type */
+  --font-sans:  'IBM Plex Sans', -apple-system, sans-serif;
+  --font-mono:  'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+  --font-serif: 'IBM Plex Serif', Georgia, serif;
+
+  --text-2xs: 10px;
+  --text-xs:  11px;
+  --text-sm:  12.5px;
+  --text-md:  14px;
+  --text-lg:  16px;
+  --text-xl:  20px;
+  --text-2xl: 28px;
+
+  /* Space */
+  --space-1:  4px;  --space-2:  8px;  --space-3: 12px;
+  --space-4: 16px;  --space-5: 20px;  --space-6: 24px;
+  --space-8: 32px;  --space-10: 40px;
+
+  /* Shadows */
+  --shadow-lift: 0 0 0 1px rgba(0, 212, 168, 0.06),
+                 0 1px 2px rgba(0, 0, 0, 0.35);
+  --glow: 0 0 12px rgba(0, 212, 168, 0.35);
+}

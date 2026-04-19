@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monogram"
+version = "0.8.0.dev0"
+description = "Personal LLM-powered knowledge and project vault — Telegram → structured markdown"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "The Monogram Authors" }]
+
+keywords = [
+    "personal-knowledge-management",
+    "llm-agents",
+    "obsidian",
+    "telegram-bot",
+    "markdown-vault",
+    "mcp-server",
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Scheduling",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+
+dependencies = [
+    # Core — required by every install path
+    "telethon>=1.34",
+    "aiogram>=3.0",
+    "litellm>=1.50",
+    "PyGithub>=2.0",
+    "python-dotenv>=1.0",
+    "click>=8.1",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "mcp>=1.0",
+    # Required at import time by cli.py run → validate_webui_config → encryption_layer
+    # and by webgen.py. Keeping in base deps because validate_webui_config is
+    # called unconditionally at startup; making these optional requires lazy
+    # imports we don't want to ship in v0.6.0.
+    "cryptography>=42.0",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+webui-gcs       = ["google-cloud-storage>=2.10"]
+webui-self-host = ["aiohttp>=3.9"]
+dev             = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow>=10.0", "ruff>=0.5", "pip-audit>=2.7"]
+eval            = ["pytest>=7.4", "pytest-xdist>=3.5", "pytest-asyncio>=0.23"]
+eval-nlp        = ["monogram[eval]", "spacy>=3.7"]
+
+# v0.8: ingestion extras — install what you need
+#   pip install 'monogram[ingestion-video]'   # YouTube, Instagram, TikTok
+#   pip install 'monogram[ingestion-research]'  # arXiv + Semantic Scholar
+#   pip install 'monogram[ingestion-pdf]'     # native PDF fast path
+#   pip install 'monogram[ingestion-pdf-complex]'  # Marker for complex PDFs
+#   pip install 'monogram[ingestion-office]'  # docx/pptx/xlsx via MarkItDown
+#   pip install 'monogram[ingestion-all]'     # everything except complex-pdf + whisper
+ingestion-video    = ["yt-dlp>=2026.1", "youtube-transcript-api>=1.0"]
+ingestion-research = ["arxiv>=2.0", "httpx>=0.25"]
+ingestion-pdf      = ["pymupdf4llm>=0.0.17"]
+ingestion-pdf-complex = ["marker-pdf>=1.0"]
+ingestion-office   = ["markitdown>=0.0.1"]
+ingestion-whisper  = ["openai-whisper>=20231117"]
+ingestion-all = [
+    "monogram[ingestion-video]",
+    "monogram[ingestion-research]",
+    "monogram[ingestion-pdf]",
+    "monogram[ingestion-office]",
+]
+
+[project.scripts]
+monogram = "monogram.cli:main"
+
+[project.urls]
+Homepage      = "https://github.com/HarimxChoi/monogram"
+Documentation = "https://github.com/HarimxChoi/monogram/tree/main/docs"
+Issues        = "https://github.com/HarimxChoi/monogram/issues"
+Changelog     = "https://github.com/HarimxChoi/monogram/releases"
+
+[tool.setuptools.packages.find]
+# `monogram` is the production package under src/; `evals` is a peer
+# package at the repo root that production NEVER imports on the hot
+# path (see the non-collision rule in docs/eval.md). It ships as a separately
+# discovered package so that `pip install '.[eval]'` registers the
+# `monogram eval` CLI subgroup and the bot's approve/deny fallback
+# can resolve the try/except ImportError branches added in 6606a92.
+where = ["src", "."]
+include = ["monogram*", "evals*"]
+namespaces = false

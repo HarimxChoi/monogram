@@ -1,0 +1,138 @@
+name: eval
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "evals/**"
+      - "pyproject.toml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "evals/**"
+  schedule:
+    # Sun + Wed 18:00 UTC = 03:00 Mon/Thu KST (D2-B)
+    - cron: "0 18 * * 0,3"
+  workflow_dispatch:
+
+jobs:
+  non-collision-check:
+    name: "CI: eval/ must not be imported from src/ hot path"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ban eval imports from src/ (AST; try/except ImportError allowed)
+        # AX-1 enforcement: src/ must not import evals/ on the production
+        # hot path. An import wrapped in `try: ... except ImportError: ...`
+        # is permitted — it's how cli.py registers the optional
+        # `monogram eval` subgroup and how bot.py's approve/deny falls
+        # back to the harvest pending store. Those are graceful-degradation
+        # admin surfaces; production pipeline (listener, pipeline, agents)
+        # must stay clean.
+        run: python scripts/check_no_evals_import.py src
+
+  replay-tests:
+    name: "CI: replay suite (zero LLM cost)"
+    runs-on: ubuntu-latest
+    needs: non-collision-check
+    strategy:
+      fail-fast: false
+      matrix:
+        # v0.7: matrix covers pyproject requires-python = ">=3.10" floor +
+        # current sane default. Drop 3.10 once it hits EOL (Oct 2026).
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: pip install -e '.[eval]'
+      - name: Run evals in replay mode
+        env:
+          MONOGRAM_EVAL_DISABLED: ""  # explicit: not disabled
+          GITHUB_PAT: ""              # empty — CaptureStore used via conftest
+          TELEGRAM_API_ID: "1"
+          TELEGRAM_API_HASH: "stub"
+          TELEGRAM_BOT_TOKEN: "1234567890:AAFakeFakeFakeFakeFakeFakeFakeFakeFak"
+          TELEGRAM_USER_ID: "1"
+          # Backfill mode: Gemini's free tier caps at 20 req/day/model,
+          # so recording all 50 seed fixtures is a multi-day operation.
+          # While cassettes are incomplete, fixtures without a recording
+          # skip instead of failing — this keeps CI green while the
+          # backfill lands incrementally over several days. Flip this
+          # to "" (empty) once evals/cassettes/ is fully populated to
+          # restore strict coverage.
+          MONOGRAM_EVAL_MISS_SKIP: "1"
+        run: pytest evals/ -v --force-eval --tb=short
+
+  kill-switch-smoke:
+    name: "CI: kill-switch layers"
+    runs-on: ubuntu-latest
+    needs: replay-tests
+    env:
+      TELEGRAM_API_ID: "1"
+      TELEGRAM_API_HASH: "stub"
+      TELEGRAM_BOT_TOKEN: "1234567890:AAFakeFakeFakeFakeFakeFakeFakeFakeFak"
+      TELEGRAM_USER_ID: "1"
+      GITHUB_PAT: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e '.[eval]'
+      - name: Layer 2 — env var disables CLI
+        env:
+          MONOGRAM_EVAL_DISABLED: "1"
+        run: |
+          set -e
+          # `eval run` should exit 0 with "disabled" message
+          out=$(monogram eval run 2>&1 || true)
+          echo "$out" | grep -qi "disabled"
+          echo "✅ env kill-switch works"
+      - name: Layer 3 — config flag is readable
+        run: |
+          python -c "from evals.kill_switch import is_eval_enabled; print(is_eval_enabled())"
+
+  harvest:
+    name: "Scheduled: Track A harvest"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    needs: [non-collision-check, replay-tests, kill-switch-smoke]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install eval + NER
+        run: |
+          pip install -e '.[eval-nlp]'
+          python -m spacy download en_core_web_sm
+          python -m spacy download ko_core_news_sm || echo "ko model optional"
+      - name: Harvest
+        env:
+          GEMINI_API_KEY: ${{ secrets.EVAL_GEMINI_KEY }}
+          GITHUB_PAT: ${{ secrets.EVAL_GITHUB_PAT }}
+          GITHUB_REPO: ${{ secrets.EVAL_GITHUB_REPO }}
+          # Harvest reads pipeline.jsonl from the eval vault; no Telegram
+          # calls are made, but MonogramConfig's pydantic validation needs
+          # these to be non-empty at import time.
+          TELEGRAM_API_ID: "1"
+          TELEGRAM_API_HASH: "stub"
+          TELEGRAM_BOT_TOKEN: "1234567890:AAFakeFakeFakeFakeFakeFakeFakeFakeFak"
+          TELEGRAM_USER_ID: "1"
+        run: monogram eval harvest --since 7d
+      - name: Upload harvest audit file (if any)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: harvest-audit-${{ github.run_id }}
+          path: evals/fixtures/harvested-*.jsonl
+          retention-days: 90
