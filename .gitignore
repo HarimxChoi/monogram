@@ -8,6 +8,8 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+.venv/
+venv/
 
 # v0.7: webui GCS backend service account (do not commit!)
 gcp-sa.json
