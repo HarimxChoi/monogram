@@ -282,7 +282,7 @@ class TestMigrationBackup:
 class TestPublishWorkflowGuards:
     def test_workflow_has_version_match_step(self):
         from pathlib import Path
-        content = Path(".github/workflows/publish.yml").read_text()
+        content = Path(".github/workflows/publish.yml").read_text(encoding="utf-8")
         # The step name is what the reviewer will see in CI
         assert "Verify tag matches pyproject.toml version" in content
         assert "TAG_VERSION" in content
@@ -290,6 +290,6 @@ class TestPublishWorkflowGuards:
 
     def test_publish_to_pypi_skips_pre_releases(self):
         from pathlib import Path
-        content = Path(".github/workflows/publish.yml").read_text()
+        content = Path(".github/workflows/publish.yml").read_text(encoding="utf-8")
         # Must have `!contains(github.ref, '-')` gate on the PyPI job
         assert "!contains(github.ref, '-')" in content

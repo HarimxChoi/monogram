@@ -59,7 +59,7 @@ dependencies = [
 
 [project.optional-dependencies]
 webui-gcs       = ["google-cloud-storage>=2.10"]
-webui-self-host = ["aiohttp>=3.9"]
+webui-self-host = ["aiohttp>=3.13.4"]  # >=3.13.4: CVE-2026-22815/34513-34520/34525
 dev             = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow>=10.0", "ruff>=0.5", "pip-audit>=2.7"]
 eval            = ["pytest>=7.4", "pytest-xdist>=3.5", "pytest-asyncio>=0.23"]
 eval-nlp        = ["mono-gram[eval]", "spacy>=3.7"]
