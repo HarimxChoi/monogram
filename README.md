@@ -7,10 +7,15 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Send anything to Telegram Saved Messages. Monogram classifies it,
-verifies no credentials leak, and commits it to a private GitHub repo
-as a markdown file you'd have written yourself. One repo. One mental
-model. Same vault, three views — Obsidian, MCP, and this:
+Send anything to Telegram Saved Messages — a link, a thought, a PDF,
+a photo. Monogram classifies it with a 5-stage LLM pipeline and
+atomically commits it to a private GitHub repo as structured markdown.
+Then it renders the vault as an auto-generated, encrypted dashboard
+on GCP.
+
+Your commits auto-organize into a Kanban. Your links become a wiki.
+Your mornings get a briefing. Same vault, three views — Obsidian,
+the dashboard, and Claude Desktop via MCP.
 
 ![Monogram dashboard — projects, wiki, life recent, commits](docs/images/dashboard.png)
 
