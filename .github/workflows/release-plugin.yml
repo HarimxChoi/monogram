@@ -1,0 +1,48 @@
+name: Release Obsidian plugin
+
+on:
+  push:
+    tags:
+      - "plugin-v*"      # e.g. plugin-v0.5.0
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install
+        working-directory: ./obsidian-plugin
+        run: npm install
+
+      - name: Build
+        working-directory: ./obsidian-plugin
+        run: npm run build
+
+      - name: Package zip
+        working-directory: ./obsidian-plugin
+        run: |
+          mkdir -p dist/monogram-quick-capture
+          cp main.js manifest.json dist/monogram-quick-capture/
+          [ -f styles.css ] && cp styles.css dist/monogram-quick-capture/ || true
+          cd dist
+          zip -r "monogram-quick-capture-${GITHUB_REF#refs/tags/plugin-v}.zip" monogram-quick-capture
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            obsidian-plugin/dist/monogram-quick-capture-*.zip
+            obsidian-plugin/manifest.json
+          body: |
+            Monogram Quick Capture Obsidian plugin — manual install zip.
+            See obsidian-plugin/README.md for install steps.

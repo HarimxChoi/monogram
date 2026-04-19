@@ -1,0 +1,14 @@
+{% if critpath %}
+<div class="critpath">
+  <div class="critpath__label">CRITICAL PATH</div>
+  <div class="critpath__items">
+    {% for item in critpath %}
+    <div class="critpath__item">
+      <span class="critpath__slug">{{ item.slug }}</span>
+      <span class="critpath__desc">{{ item.description }}</span>
+      {% if item.deadline_label %}<span class="critpath__deadline">{{ item.deadline_label }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

@@ -1,0 +1,10 @@
+{
+  "id": "monogram-quick-capture",
+  "name": "Monogram Quick Capture",
+  "version": "0.5.0",
+  "minAppVersion": "1.4.0",
+  "description": "One-hotkey quick capture for Monogram. Writes a queue file to daily/<today>/ for the Monogram agent to process.",
+  "author": "The Monogram Authors",
+  "authorUrl": "https://github.com/example-org/monogram",
+  "isDesktopOnly": false
+}

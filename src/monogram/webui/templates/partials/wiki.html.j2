@@ -1,0 +1,39 @@
+<aside class="panel panel--wiki">
+  <div class="panel__header">
+    <div class="panel__title"><strong>WIKI</strong> · KNOWLEDGE</div>
+    <div class="panel__count">{{ wiki.total }} entries</div>
+  </div>
+  <div class="panel__body">
+    <div class="wiki__search">
+      <input type="text" placeholder="search wiki…">
+      <kbd>⌘K</kbd>
+    </div>
+
+    <div class="wiki__section">Recent</div>
+    {% for entry in wiki.recent %}
+    <div class="wiki-item">
+      <div class="wiki-item__title">{{ entry.title }}</div>
+      <div class="wiki-item__meta">{{ entry.time_relative }}</div>
+      {% if entry.tags %}
+      <div class="wiki-item__tags">
+        {% for t in entry.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="wiki-item">
+      <div class="wiki-item__title">No wiki entries yet</div>
+      <div class="wiki-item__meta">—</div>
+    </div>
+    {% endfor %}
+
+    {% if wiki.tag_cloud %}
+    <div class="wiki__section">Tags</div>
+    <div class="wiki__tagcloud">
+      {% for t in wiki.tag_cloud %}
+      <span class="tag">{{ t.name }}<span> {{ t.count }}</span></span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</aside>

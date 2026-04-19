@@ -1,0 +1,28 @@
+<section class="panel panel--life">
+  <div class="panel__header">
+    <div class="panel__title"><strong>LIFE</strong> · RECENT</div>
+    <div class="panel__count">last 7 days</div>
+  </div>
+  <div class="panel__body">
+    <div class="life">
+      {% for item in life_items %}
+      <div class="life-item">
+        <div class="life-item__time">{{ item.time_relative }}</div>
+        <div class="life-item__content">
+          <div class="life-item__title">{{ item.title }}</div>
+          <div class="life-item__snippet">{{ item.snippet }}</div>
+        </div>
+        <span class="life-item__tag life-item__tag--{{ item.area_css }}">{{ item.area_label }}</span>
+      </div>
+      {% else %}
+      <div class="life-item">
+        <div class="life-item__time">—</div>
+        <div class="life-item__content">
+          <div class="life-item__title">No life entries in the last 7 days</div>
+          <div class="life-item__snippet">Drop something in Telegram to populate this panel.</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>

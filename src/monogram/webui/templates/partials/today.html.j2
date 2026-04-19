@@ -1,0 +1,43 @@
+<section class="panel panel--today">
+  <div class="panel__header">
+    <div class="panel__title"><strong>TODAY</strong> · {{ today.date }}</div>
+    <div class="panel__count">{{ today.drops | length }} drops · {{ today.commits | length }} commits</div>
+  </div>
+  <div class="panel__body">
+    <div class="today">
+      <div class="today__section">
+        <h4>Drops</h4>
+        <div class="tline">
+          {% for d in today.drops %}
+          <span class="tline__time">{{ d.time }}</span>
+          <span class="tline__src">{{ d.source }}</span>
+          <span class="tline__arrow">→</span>
+          <span class="tline__dst">{{ d.destination }}</span>
+          {% else %}
+          <span class="tline__time">—</span>
+          <span class="tline__src">(none)</span>
+          <span class="tline__arrow"></span>
+          <span class="tline__dst"></span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="today__section">
+        <h4>Commits · watched repos</h4>
+        {% for c in today.commits %}
+        <div class="commit">
+          <span class="commit__hash">{{ c.sha }}</span>
+          <span class="commit__msg">{{ c.message }}</span>
+          <span class="commit__repo">{{ c.repo }}</span>
+        </div>
+        {% else %}
+        <div class="commit">
+          <span class="commit__hash">—</span>
+          <span class="commit__msg">(no commits today)</span>
+          <span class="commit__repo"></span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,37 @@
+<section class="panel panel--board">
+  <div class="panel__header">
+    <div class="panel__title"><strong>PROJECTS</strong> · BOARD</div>
+    <div class="panel__count">{{ board.total }} total</div>
+  </div>
+  <div class="panel__body">
+    <div class="board">
+      {% for col_name, cards, col_modifier in [
+        ('Active', board.active, 'active'),
+        ('Inactive', board.inactive, 'inactive'),
+        ('Done', board.done, 'done'),
+      ] %}
+      <div class="board__column board__column--{{ col_modifier }}">
+        <div class="board__column-header">
+          <span>{{ col_name }}</span>
+          <span>{{ cards | length }}</span>
+        </div>
+        {% for card in cards %}
+        <div class="card">
+          <div class="card__head">
+            <div class="card__slug">{{ card.slug }}</div>
+            <div class="card__deadline card__deadline--{{ card.deadline_class }}">{{ card.deadline_label }}</div>
+          </div>
+          {% if card.status %}<div class="card__status">{{ card.status }}</div>{% endif %}
+          {% if card.note %}<div class="card__note">{{ card.note }}</div>{% endif %}
+          {% if card.blocker %}<div class="card__blocker">⚠ {{ card.blocker }}</div>{% endif %}
+          <div class="card__foot">
+            {{ card.spark_svg | safe }}
+            <div class="card__metric">{{ card.metric_html | safe }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
