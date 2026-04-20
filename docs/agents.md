@@ -92,47 +92,65 @@ from typing import Literal
 class Classification(BaseModel):
     drop_type: Literal[
         "task", "deadline", "technical_link", "paper",
-        "personal_thought", "query", "ambiguous"
+        "personal_thought", "life_item", "credential",
+        "query", "ambiguous",
     ]
-    target_path: str = Field(
-        description="Relative path in repo, e.g. scheduler/projects/paper-a.md"
-    )
-    target_exists: bool = Field(
-        description="True if target_path already exists in MEMORY.md"
-    )
+    target_kind: Literal["project", "life", "wiki", "credential", "daily_only"]
+    life_area: str | None = None
+    slug: str
     confidence: Literal["high", "medium", "low"]
-    tags: list[str] = Field(default_factory=list, max_length=5)
+    tags: list[str] = Field(default_factory=list)
     reasoning: str = Field(
-        max_length=200,
-        description="One-line rationale (logged, not shown to user)"
+        description="One-line rationale (logged, not shown to user)",
     )
+
+    @property
+    def target_path(self) -> str:
+        return derive_path(self.target_kind, self.slug, self.life_area)
 ```
+
+`target_path` is derived, not emitted. The classifier emits
+`target_kind` + `slug` (+ `life_area` for life kinds); `derive_path`
+in `monogram.taxonomy` maps them to the canonical path, e.g.
+`projects/paper-a.md`, `wiki/<slug>.md`, `life/<area>.md`,
+`life/credentials/<slug>.md`, or `""` for `daily_only`.
 
 ### System Prompt
 
 ```
 You are the classifier stage of Monogram's pipeline.
 
-Given an inbound payload, determine:
-1. What kind of content this is (drop_type)
-2. Where it should live (target_path)
-3. Whether the target already exists (check MEMORY.md pointers)
-4. Confidence in the classification (high/medium/low)
+Given an inbound payload, route it to exactly one of FIVE destinations.
+Choose based on ACTIONABILITY — how the user will use this later — not topic.
 
-Routing rules are in SCHEMA.md "Source Types → Destination" section.
-Follow them exactly — do not invent new categories.
+1. project — user talks about THEIR OWN deadlined project
+   path: projects/{slug}.md
+2. life — ongoing life area item (shopping, meetings, places, etc.)
+   path: life/{life_area}.md (appends timestamped entry)
+3. wiki — reusable knowledge, NOT tied to one project
+   path: wiki/{slug}.md (flat, no subfolders)
+4. credential — password, API key, token
+   path: life/credentials/{slug}.md (slug MUST be generic)
+5. daily_only — reflections, queries, random thoughts
+   NO stable target — lands only in daily/drops.md
 
-If confidence is low, the verifier will request reclassification
-with thinking enabled. Do not pad low-confidence outputs with extra
-detail; state uncertainty clearly.
+HARD CONSTRAINTS:
+- slug MUST match [a-z0-9-]+. No spaces, dates, uppercase, or underscores.
+- life_area MUST be from VaultConfig.life_categories (or omit for non-life).
+- Do NOT emit raw paths. Emit target_kind + (life_area | slug) only.
 
 Output valid JSON matching the Classification schema.
 ```
 
+The full prompt (with examples per kind) lives in
+`classifier._build_system_prompt()`. `life_categories` is injected from
+`VaultConfig` at call time — users edit categories in `mono/config.md`
+without a code change.
+
 ### Escalation triggers
 
-- `confidence == "low"` → verifier will re-run this stage with thinking ON
-- `drop_type == "ambiguous"` → verifier will escalate to Flash
+- `confidence == "low"` → downstream stages run with thinking ON
+- `drop_type == "ambiguous"` → verifier is likely to set `escalate=true`
 
 ---
 
@@ -160,15 +178,15 @@ class ProjectUpdate(BaseModel):
 class ConceptDrop(BaseModel):
     kind: Literal["concept_drop"] = "concept_drop"
     title: str
-    summary: str = Field(max_length=500)
+    summary: str
     source_url: str | None = None
-    key_claims: list[str] = Field(default_factory=list, max_length=5)
-    tags: list[str] = Field(default_factory=list, max_length=5)
+    key_claims: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 class PersonalLog(BaseModel):
     kind: Literal["personal_log"] = "personal_log"
     content: str
-    context: str | None = None  # what the user was doing, if inferrable
+    context: str | None = None
 
 class QueryIntent(BaseModel):
     kind: Literal["query_intent"] = "query_intent"
@@ -176,8 +194,38 @@ class QueryIntent(BaseModel):
     scope: Literal["scheduler", "wiki", "both"]
     time_range: Literal["today", "week", "month", "all"] = "all"
 
-ExtractedPayload = Union[ProjectUpdate, ConceptDrop, PersonalLog, QueryIntent]
+class LifeEntry(BaseModel):
+    kind: Literal["life_entry"] = "life_entry"
+    title: str
+    content: str
+    context: str | None = None
+
+class CredentialEntry(BaseModel):
+    kind: Literal["credential_entry"] = "credential_entry"
+    label: str   # human label — NOT the secret value itself
+    body: str    # credential content, as-is
+
+ExtractedPayload = Union[
+    ProjectUpdate, ConceptDrop, PersonalLog, QueryIntent,
+    LifeEntry, CredentialEntry,
+]
 ```
+
+Schema variant is chosen from `classification.drop_type` via
+`_DROP_TYPE_TO_SCHEMA` in `extractor.py`:
+
+```
+task, deadline          → ProjectUpdate
+technical_link, paper   → ConceptDrop
+personal_thought        → PersonalLog
+life_item               → LifeEntry
+credential              → CredentialEntry
+query                   → QueryIntent
+ambiguous               → PersonalLog
+```
+
+`QueryIntent.scope` currently uses `Literal["scheduler", "wiki", "both"]`;
+"scheduler" is retained for back-compat with pre-v0.3 cassettes.
 
 ### System Prompt
 
@@ -220,23 +268,19 @@ from typing import Literal
 
 class Contradiction(BaseModel):
     existing_path: str
-    existing_claim: str = Field(max_length=200)
-    new_claim: str = Field(max_length=200)
+    existing_claim: str
+    new_claim: str
     severity: Literal["minor", "material", "direct"]
 
 class VerifyResult(BaseModel):
     ok: bool
     contradictions: list[Contradiction] = Field(default_factory=list)
     target_confidence: Literal["high", "medium", "low"]
-    supersession_proposed: str | None = Field(
-        default=None,
-        description="Path of existing page to supersede, if applicable"
-    )
     escalate: bool = Field(
         default=False,
-        description="True if downstream should re-run with Flash"
+        description="True if downstream should re-run with Flash",
     )
-    reasoning: str = Field(max_length=300)
+    reasoning: str
 ```
 
 ### System Prompt
@@ -244,24 +288,20 @@ class VerifyResult(BaseModel):
 ```
 You are the verifier stage of Monogram's pipeline — the reliability gate.
 
-Given an extracted payload and the relevant pointers from MEMORY.md,
-check for:
+Given an extracted payload, its classification, and the EXISTING content
+of the target file (if any) plus relevant MEMORY.md pointers, check for:
 
 1. Contradictions with existing facts
    - minor: different phrasing of same fact, no action needed
    - material: partial conflict, needs user awareness
-   - direct: supersession candidate — new fact replaces old
+   - direct: new fact replaces old
 
 2. Confidence appropriateness
    - Does the source support the claimed confidence level?
    - Single unverified source maxes at "medium"
    - Third-party link without cross-check maxes at "low"
 
-3. Supersession need
-   - If a direct contradiction with an existing page exists,
-     propose that page's path as supersession target
-
-4. Escalation signal
+3. Escalation signal
    - Set escalate=true if: contradiction is ambiguous,
      confidence is unclear, or payload is structurally strange
 
@@ -273,8 +313,8 @@ Output valid JSON matching VerifyResult schema.
 
 ### Escalation triggers
 
-- `escalate == true` → Writer receives signal, caller re-runs extractor+verifier on Flash
-- `contradictions[].severity == "material"` AND no clear supersession → ask user
+- `escalate == true` → caller re-runs extractor + verifier once on the mid tier
+- `ok == false` after escalation budget is spent → ask user
 - `target_confidence != extractor_confidence` → Writer uses verifier's value
 
 ---
@@ -288,124 +328,124 @@ Output valid JSON matching VerifyResult schema.
 
 ### Behavior
 
-Per the 2×3 grid (see `docs/architecture.md` §2 and `docs/vault-layout.md`),
-every drop produces writes in up to 5 paths, all committed atomically.
+Writer dispatches on `classification.target_kind` and produces a
+`FileChange` with every path for one atomic commit. No git side-effect
+happens here — `github_store.write_multi()` in the caller performs the
+commit.
 
 ```python
-# pseudocode
+# pseudocode — real code in src/monogram/agents/writer.py
 
-def run(drop, classification, payload, verify_result):
-    if not verify_result.ok and not verify_result.escalate:
-        # hard block — ask user
-        return AskUser(payload, verify_result)
+def run(extraction, verification, classification, *, existing_*):
+    today = utcnow().strftime("%Y-%m-%d")
+    writes: dict[str, str] = {}
+    target_path = classification.target_path   # derived from target_kind + slug
+    target_kind = classification.target_kind
 
-    today = drop.timestamp.strftime("%Y-%m-%d")
-    staged_writes: dict[str, str] = {}   # path -> content
-    decision_entry = start_decision_entry(drop, classification, verify_result)
+    # ── 1. Stable-state write (kind-dispatched) ──
+    if target_kind == "project" and target_path:
+        # projects/<slug>.md — OVERWRITE with YAML metadata + rendered body
+        writes[target_path] = serialize_with_metadata(
+            metadata(verification.target_confidence, classification.tags),
+            render_project(extraction),
+        )
 
-    # ── 1. ALWAYS: append to today's drops.md (temporal source) ───────────────
-    daily_path = f"daily/{today}/drops.md"
-    staged_writes[daily_path] = append_drop_entry(
-        existing=github_store.read(daily_path),
-        drop=drop,
-        classification=classification,
+    elif target_kind == "life" and target_path:
+        # life/<area>.md — APPEND timestamped H3 entry
+        writes[target_path] = existing_target + render_life_entry(extraction)
+
+    elif target_kind == "wiki" and target_path:
+        # wiki/<slug>.md — OVERWRITE with metadata + body
+        writes[target_path] = serialize_with_metadata(
+            metadata(verification.target_confidence, classification.tags),
+            render_wiki(extraction),
+        )
+        # wiki/index.md — maintain canonical one-line index
+        writes["wiki/index.md"] = append_or_replace_index_line(...)
+        # v0.3b: auto-maintained backlinks for tag-overlap peers (cap 5)
+        writes.update(compute_backlink_writes(...))
+
+    elif target_kind == "credential" and target_path:
+        # life/credentials/<slug>.md — minimal body, NO frontmatter
+        # (LLM never reads this path again)
+        writes[target_path] = render_credential(extraction)
+
+    # target_kind == "daily_only" has no stable-state write.
+
+    # ── 2. daily/drops.md — ALWAYS (credential entry is REDACTED) ──
+    writes[f"daily/{today}/drops.md"] = (
+        existing_drops + build_drop_entry(extraction, classification)
     )
 
-    # ── 2. CONDITIONAL: stable state write ────────────────────────────────────
-    target_path = None
-    if classification.target_type == "off_topic":
-        # no stable-state change, just the drops.md append
-        pass
-
-    elif classification.target_type == "scheduler_update":
-        target_path = f"scheduler/projects/{classification.project_name}.md"
-        staged_writes[target_path] = update_scheduler_project(
-            existing=github_store.read(target_path),
-            payload=payload,
-            verify_result=verify_result,
+    # ── 3. MEMORY.md — ONLY for project and wiki ──
+    # Not for life, not for credential (LLM-skip), not for daily_only.
+    if target_kind in ("project", "wiki") and target_path:
+        writes["MEMORY.md"] = update_memory_pointer(
+            existing_memory, target_path,
+            summary_of(extraction), verification.target_confidence,
         )
 
-    elif classification.target_type == "wiki_entry":
-        if verify_result.target_confidence == "low":
-            target_path = f"wiki/_unlabeled/{today}-{classification.slug}.md"
-        else:
-            target_path = f"wiki/{classification.category}/{classification.slug}.md"
-
-        # Overwrite in place; git history preserves the prior version.
-        # YAML-level supersession linking deferred to v2.0.
-        staged_writes[target_path] = compose_wiki_entry(
-            existing=github_store.read(target_path),
-            payload=payload,
-            verify_result=verify_result,
-            classification=classification,
-        )
-
-    # ── 3. CONDITIONAL: MEMORY.md pointer update ─────────────────────────────
-    if target_path:
-        staged_writes["MEMORY.md"] = update_memory_pointer(
-            existing=github_store.read("MEMORY.md"),
-            target_path=target_path,
-            status_line=payload.short_summary(),
-            confidence=verify_result.target_confidence,
-        )
-
-    # ── 4. CONDITIONAL: _categories.json update ──────────────────────────────
-    if classification.target_type == "wiki_entry" and verify_result.target_confidence != "low":
-        staged_writes["wiki/_categories.json"] = bump_category_counter(
-            existing=github_store.read("wiki/_categories.json"),
-            category=classification.category,
-            keywords=classification.tags,
-        )
-
-    # ── 5. ALWAYS: decisions.md append (system telemetry) ────────────────────
-    staged_writes["log/decisions.md"] = append_decision_log(
-        existing=github_store.read("log/decisions.md"),
-        entry=decision_entry.finalize(writes=list(staged_writes.keys())),
+    # ── 4. log/decisions.md — ALWAYS (credential slug/path redacted) ──
+    writes["log/decisions.md"] = (
+        existing_decisions
+        + build_decision_entry(classification, verification, list(writes))
     )
 
-    # ── 6. ATOMIC COMMIT: all writes in a single commit ──────────────────────
-    commit_sha = github_store.atomic_commit(
-        writes=staged_writes,
-        message=f"monogram: {classification.drop_type} — {payload.title[:40]}",
+    return FileChange(
+        writes=writes,
+        commit_message=commit_message(classification),
+        primary_path=target_path or f"daily/{today}/drops.md",
+        confidence=verification.target_confidence,
     )
+```
 
-    return commit_sha
+Per-kind path summary:
+
+```
+project     → projects/<slug>.md              OVERWRITE + MEMORY + drops + decisions
+life        → life/<area>.md                  APPEND     +        drops + decisions
+wiki        → wiki/<slug>.md + wiki/index.md  OVERWRITE + MEMORY + drops + decisions (+ backlinks)
+credential  → life/credentials/<slug>.md      OVERWRITE +        drops(REDACTED) + decisions(redacted)
+daily_only  → (no stable-state write)         drops + decisions only
 ```
 
 ### Atomic commit rule
 
-All writes in `staged_writes` must land in **one git commit**, or nothing
-lands. `github_store.atomic_commit()` is the gate. Implementation uses the
-GitHub API `POST /repos/{owner}/{repo}/git/trees` + `git/commits` to create
-a tree with all changes, then fast-forwards main. Partial staging on network
-failure → client-side rollback (no trees persist until the commit is pushed).
+All writes in `FileChange.writes` must land in **one git commit**, or
+nothing lands. `github_store.write_multi()` is the gate. It uses the
+GitHub API `POST /repos/{owner}/{repo}/git/trees` + `git/commits` to
+create a tree with all changes, then fast-forwards main. Partial staging
+on network failure → client-side rollback (no trees persist until the
+commit is pushed).
 
 ### What Writer does NOT do
 
-- No LLM calls (agents.md §0 rule: Writer is deterministic)
-- No supersession decisions (Verifier decides, Writer executes)
-- No category decisions (Classifier decides, Writer records)
-- No direct writes to `raw/`, `reports/`, or `_categories.json` contents
-  beyond counter bumps (those have their own write paths in other stages)
+- No LLM calls. Writer is deterministic Python.
+- No classification decisions. Writer reads `target_kind` / `slug`.
+- No verification decisions. Writer reads `target_confidence` / `ok` / `escalate`.
+- No MEMORY pointer for `life` or `credential`. Credentials are LLM-skip.
 
 ### Drops carry no confidence
 
-Drops are **events**, not claims. The entry in `daily/*/drops.md` records
-*that something happened* and *how it was classified*, but carries no
-`confidence:` field of its own. Only the stable-state write (wiki entry,
-scheduler project) carries confidence metadata.
+Drops are events, not claims. The entry in `daily/*/drops.md` records
+that something happened and how it was classified; it carries no
+`confidence:` field of its own. Only the stable-state write (project,
+wiki, etc.) carries confidence metadata.
 
 Example drops.md entry format:
 
 ```markdown
-## 14:32 — url
-**Source:** https://arxiv.org/abs/2501.13956
-**Classified:** wiki_entry → _refs/2025/ (high)
-**Written:** wiki/_refs/2025/zep-temporal-graph.md
-**Commit:** abc1234
+## 14:32
+**paper** → `wiki/zep-temporal-graph.md`
+Zep: Temporal Knowledge Graph for Agent Memory
 ```
 
-Event record. No confidence. Never superseded.
+Credential drops are redacted:
+
+```markdown
+## 14:32
+**credential** → (redacted)
+```
 
 ---
 
@@ -414,33 +454,54 @@ Event record. No confidence. Never superseded.
 When the verifier sets `escalate=true`, the caller (pipeline runner) does:
 
 ```python
-# pseudocode in pipeline.py
+# pseudocode — real code in src/monogram/pipeline.py
 
 async def run_pipeline(payload):
     plan = await orchestrator.run(payload)
     classification = await classifier.run(payload, plan)
+
+    # Verifier needs real context to check contradictions.
+    target_content = safe_read(classification.target_path)
+    memory_content = safe_read("MEMORY.md")
+
     extraction = await extractor.run(payload, classification)
-    verification = await verifier.run(extraction, classification)
-    
+    verification = await verifier.run(
+        extraction, classification,
+        target_content=target_content,
+        memory_content=memory_content,
+    )
+
     if verification.escalate:
-        # re-run extractor on the mid tier (reasoning)
+        # Re-run extractor + verifier once on the mid tier (reasoning).
         extraction = await extractor.run(
-            payload, classification,
-            model_override=get_model("mid"),
+            payload, classification, model_override=get_model("mid"),
         )
-        verification = await verifier.run(extraction, classification)
-        
+        verification = await verifier.run(
+            extraction, classification,
+            target_content=target_content,
+            memory_content=memory_content,
+        )
         if verification.escalate:
-            # two escalations = ask user
-            return AskUser(payload, verification)
-    
+            # Two escalations = ask the user.
+            return PipelineResult(blocked_reason="two escalations — ask the user")
+
     if not verification.ok:
-        return AskUser(payload, verification)
-    
-    return await writer.run(extraction, verification, classification)
+        return PipelineResult(blocked_reason=verification.reasoning)
+
+    file_change = await writer.run(
+        extraction, verification, classification,
+        existing_target=target_content,
+        existing_memory=memory_content,
+        existing_drops=safe_read(f"daily/{today}/drops.md"),
+        existing_decisions=safe_read("log/decisions.md"),
+        existing_wiki_index=safe_read("wiki/index.md") if classification.target_kind == "wiki" else "",
+    )
+    return PipelineResult(file_change=file_change)
 ```
 
-Escalation is bounded — at most one re-run. No infinite loops.
+Escalation is bounded — at most one re-run. No infinite loops. The
+actual commit happens in the listener/bot via
+`github_store.write_multi(file_change)`, not inside the pipeline.
 
 ---
 
@@ -497,7 +558,7 @@ still 60% utilization. Comfortable.
 
 ## 9. Testing Each Agent
 
-Each agent module has a corresponding test file:
+One test file per agent, plus an end-to-end pipeline test:
 
 ```
 tests/agents/test_orchestrator.py
@@ -505,36 +566,22 @@ tests/agents/test_classifier.py
 tests/agents/test_extractor.py
 tests/agents/test_verifier.py
 tests/agents/test_writer.py
-tests/agents/test_pipeline.py  ← end-to-end
+tests/agents/test_pipeline.py
 ```
 
-Tests use the `@pytest.mark.live_llm` marker (added in Phase B) to gate
-real API calls. Default pytest runs only schema/structure tests that don't
-burn quota. Live tests run on-demand with `pytest -m live_llm`.
+The `@pytest.mark.live_llm` marker gates real API calls. Default
+`pytest` runs only schema/structure tests. Live tests run on-demand with
+`pytest -m live_llm`.
 
-Each agent test covers:
-- Happy path (expected input → expected schema output)
-- Escalation trigger (low-confidence input → escalate=true or thinking=on)
-- Schema validation (malformed input → clear error)
+Each agent test covers the happy path, the escalation trigger, and
+schema validation against malformed input.
 
 ---
 
 ## 10. Versioning Prompts
 
-System prompts for each stage are stored as module constants:
-
-```python
-# src/monogram/agents/classifier.py
-
-CLASSIFIER_SYSTEM_PROMPT_VERSION = "v1"
-CLASSIFIER_SYSTEM_PROMPT = """
-You are the classifier stage of Monogram's pipeline.
-...
-"""
-```
-
-On any prompt change, increment the version string. `log/llm_usage.jsonl`
-records the prompt version alongside the call, so regressions are traceable.
-
-12-Factor Agents Factor 2 (own your prompts): they live in git, not in a
-prompt-management SaaS. Diffs are reviewable. History is permanent.
+System prompts live in the agent modules as constants (or, for the
+classifier, as a function that injects runtime `VaultConfig` values).
+On any prompt change, bump the version string; `log/llm_usage.jsonl`
+records it alongside the call so regressions are traceable. Prompts
+live in git — diffs are reviewable, history is permanent.

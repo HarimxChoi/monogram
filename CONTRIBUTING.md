@@ -121,11 +121,6 @@ documented here so they don't get lost:
   bumps. Hold major bumps for the next minor-version release.
 - **Per release**: update CHANGELOG.md before tagging.
 
-## Code of Conduct
-
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). TL;DR: be kind, assume
-good faith, don't harass anyone.
-
 ## Questions?
 
 Open a [Discussion](https://github.com/HarimxChoi/monogram/discussions)

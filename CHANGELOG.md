@@ -54,7 +54,6 @@ the v0.7 eval harness landed.
   - `LICENSE` (MIT)
   - `SECURITY.md` (vulnerability disclosure)
   - `CONTRIBUTING.md` (solo-maintainer SLAs)
-  - `CODE_OF_CONDUCT.md` (Contributor Covenant)
   - This file (`CHANGELOG.md`)
 
 ### Changed

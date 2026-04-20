@@ -19,8 +19,7 @@ Deploy Monogram on Google Cloud's always-free `e2-micro` VM in `us-central1-c`.
 
 - GCP account with billing enabled (required even for free tier)
 - `gcloud` CLI installed: https://cloud.google.com/sdk/docs/install
-- A fresh `<your-github-user>/mono` repo already initialized via
-  `scripts/migrate_v0_3.py --apply` OR `monogram init`
+- A fresh `<your-github-user>/mono` repo, initialized via `monogram init`
 
 ## 1. Create the VM
 

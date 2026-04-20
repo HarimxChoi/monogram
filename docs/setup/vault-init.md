@@ -1,8 +1,12 @@
 # Vault init — starting a fresh `mono` repo (v0.3a)
 
+> **Legacy.** `monogram init` is the current entry point — see
+> [deploying.md §6.2](../../deploying.md). This doc remains for
+> understanding the vault skeleton layout.
+
 v0.3a is a clean-slate reset: a new empty GitHub repo, new folder
 structure, new 5-kind taxonomy. No content migrates from a v0.2
-`scheduler` repo. This doc is the step-by-step for first-time setup.
+`scheduler` repo.
 
 ## Preconditions
 
@@ -93,18 +97,8 @@ After skeleton init:
 
 ## Upgrading from v0.2
 
-v0.3 is a clean reset — no automatic data migration from v0.2's
-`scheduler` repo. If you want specific v0.2 files in the new vault,
-manually copy them:
-
-```powershell
-# from your old local clone of scheduler/
-copy scheduler/projects/paper-a.md   mono/projects/paper-a.md
-# Adjust any wiki/<category>/ files by dropping the subfolder:
-copy scheduler/wiki/tech/rtmpose.md   mono/wiki/rtmpose.md
-```
-
-The old scheduler repo stays in GitHub as a historical archive.
+No automatic migration. Copy any needed files from the old `scheduler`
+repo into the new `mono` layout by hand.
 
 ## Troubleshooting
 

@@ -190,7 +190,7 @@ stay within the free-tier limits for `e2-micro`.
 
 ```bash
 gcloud compute instances create monogram \
-  --zone=us-west1-a \
+  --zone=us-central1-c \
   --machine-type=e2-micro \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
@@ -201,9 +201,9 @@ gcloud compute instances create monogram \
 
 Why these choices:
 
-- **`us-west1-a`** (Oregon), `us-central1-a` (Iowa), or `us-east1-b`
-  (S. Carolina) are the only free-tier regions for `e2-micro` — pick
-  whichever is closest geographically.
+- **`us-central1-c`** (Iowa), `us-east1-b` (S. Carolina), or `us-west1-a`
+  (Oregon) are the only free-tier regions for `e2-micro` — pick whichever
+  is closest geographically.
 - **`pd-standard` 30 GB** is the free-tier disk cap. Don't exceed this.
 - **`e2-micro`** is the free-tier VM size: 2 vCPUs burst, 1 GB RAM.
   Monogram's steady-state footprint is ~200 MB.
@@ -211,7 +211,7 @@ Why these choices:
 ### 5.3 SSH in
 
 ```bash
-gcloud compute ssh monogram --zone=us-west1-a
+gcloud compute ssh monogram --zone=us-central1-c
 ```
 
 ### 5.4 System-level setup on the VM
@@ -243,11 +243,8 @@ sudo apt install -y poppler-utils
 python3.12 -m venv ~/monogram-env
 source ~/monogram-env/bin/activate
 
-# Once v1.0 is on PyPI (pip package name is mono-gram; CLI stays monogram):
+# pip package is mono-gram; CLI and import path remain monogram
 pip install 'mono-gram[ingestion-all]'
-
-# Until then, install from git:
-pip install -e 'git+https://github.com/HarimxChoi/monogram.git#egg=mono-gram[ingestion-all]'
 ```
 
 Confirm the install:
@@ -305,7 +302,7 @@ This wizard:
 
 - Validates every credential (Telegram, GitHub, LLM provider reachable)
 - Creates the initial vault structure in `<your-github-user>/mono`
-  (`identity/`, `daily/`, `wiki/`, `scheduler/`, `config.md`, etc.)
+  (`identity/`, `daily/`, `wiki/`, `projects/`, `config.md`, etc.)
 - Writes a sample `config.md` with sensible defaults
 - Commits the scaffolding
 
@@ -332,17 +329,15 @@ monogram digest "Testing monogram on new VM. This should classify as life/misc."
 Expected output: pipeline-stage log, classification decision, draft
 write. No commit to the vault yet (digest is dry-run).
 
-Now the real smoke test — run the listener briefly:
+Then run the listener briefly:
 
 ```bash
 monogram run
 # In Telegram Saved Messages, drop: "Test drop from new deployment"
 # Wait a few seconds.
-# You should see a new commit on <your-github-user>/mono.
+# A new commit should appear on <your-github-user>/mono.
 # Ctrl-C to stop.
 ```
-
-If the commit appears, the system is working end-to-end.
 
 ---
 
@@ -470,21 +465,15 @@ First-run notes:
 
 ## 10 · PyPI release (maintainers only)
 
-Only relevant if you're shipping Monogram to PyPI yourself — not needed
-for personal use.
+`mono-gram` is already registered on PyPI; this section covers cutting
+new versions. Not needed for personal use.
 
-### 10.1 Trusted Publisher registration
+### 10.1 Trusted Publisher (already configured)
 
-Go to <https://pypi.org/manage/account/publishing/>. Add a *pending
-publisher*:
-
-- **Project name:** `monogram` (or your fork's name)
-- **Owner:** `<your-github-user>`
-- **Repository:** `monogram`
-- **Workflow name:** `publish.yml`
-- **Environment name:** `pypi`
-
-No token is stored — OIDC handles authentication at release time.
+The project is configured with PyPI Trusted Publishing — no stored
+tokens. OIDC handles authentication at release time. Workflow:
+`publish.yml`, environment: `pypi`. If forking, re-register under your
+own project at <https://pypi.org/manage/account/publishing/>.
 
 ### 10.2 TestPyPI dry run
 
@@ -581,7 +570,7 @@ truncate -s 0 ~/.config/monogram/*.log
 
 ## 12 · Monthly maintenance (10 min)
 
-- [ ] `pip install --upgrade mono-gram` (after v1.0.0 is on PyPI)
+- [ ] `pip install --upgrade mono-gram`
 - [ ] Check `monogram stats --window 30` — any latency regression?
 - [ ] Check PAT expiration dates (both vault + backup)
 - [ ] Confirm backup-verify CI ran and was green
