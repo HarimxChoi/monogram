@@ -165,9 +165,9 @@ CVE-2024-12425/12426 and CVE-2025-1080; see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
-- **v0.8 (current)** — core pipeline, ingestion, hardening, observability
-- **v1.0** — PyPI release after dogfood + RC soak
-- **v1.1** — news digest, MCP client mode, BM25 + embeddings search
+- **v0.8 (current)** — core pipeline, ingestion, hardening, observability. Package live on PyPI as `mono-gram`; dogfood underway.
+- **v1.0** — tag cut after dogfood wraps.
+- **v1.1** — news digest, MCP client mode, BM25 + embeddings search.
 
 Roadmap: see CHANGELOG.md for shipped features.
 

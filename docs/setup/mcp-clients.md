@@ -1,11 +1,5 @@
 # Monogram MCP Setup — Claude Desktop, Cursor, OpenClaw
 
-> B3 manual gate for the build plan. Once you've followed this doc on one
-> client and seen the 5 tools appear, drop a `works` / `doesn't + error` into
-> the session and we can tag `v0.1.0-alpha2-phaseB`.
-
----
-
 ## 1. Install `monogram`
 
 Prereqs: **Python 3.10+** and a filled `.env` next to your working dir (see
@@ -20,7 +14,7 @@ them, but tool calls fail.
 brew install pipx || python3 -m pip install --user pipx
 pipx ensurepath
 
-pipx install monogram        # when published to PyPI
+pipx install mono-gram
 # or, from this repo's root while under development:
 pipx install --editable .
 ```
@@ -31,7 +25,7 @@ py -m pip install --user pipx
 py -m pipx ensurepath
 # restart the shell so PATH picks up ~\.local\bin
 
-pipx install monogram        # when published
+pipx install mono-gram
 # or, in-repo dev install:
 pipx install --editable .
 ```
@@ -69,7 +63,7 @@ the absolute path below.
 ### Verify the install
 
 ```bash
-monogram --version           # → monogram, version 0.1.0
+monogram --version           # → monogram, version 0.8.0.dev0
 monogram --help              # shows init / mcp-serve / run
 monogram mcp-serve           # starts stdio server; Ctrl-C to exit
 ```
@@ -147,7 +141,7 @@ If your `.env` isn't in the cwd Claude Desktop spawns the subprocess from
       "env": {
         "GEMINI_API_KEY": "…",
         "GITHUB_PAT": "…",
-        "GITHUB_REPO": "<owner>/<scheduler-repo>"
+        "GITHUB_REPO": "<owner>/mono"
       }
     }
   }
@@ -207,11 +201,11 @@ ship the SOUL/SKILL bundle in v1.0, installation will reduce to
 1. Restart the client completely.
 2. Open a new chat.
 3. Find the tools panel / MCP indicator — it should show **`monogram`** with
-   **5 tools**: `read_project`, `list_projects`, `update_project`,
-   `today_brief`, `recent_activity`.
+   **13 tools** across three groups: reads, a gated write, and LLM config.
+   Authoritative list: [docs/mcp.md §2](../mcp.md).
 4. Ask a natural question that should trigger one of them, e.g. *"List my
-   scheduler projects."* → the client should call `list_projects` and
-   return the README contents.
+   projects."* → the client should call `list_projects` and return the
+   README contents.
 5. Ask *"Generate today's brief."* → `today_brief` runs, LLM produces a
    priority brief.
 
@@ -285,13 +279,10 @@ then update both your `.env` and (if used) the `env` block in the MCP config.
 
 ---
 
-## 5. Manual gate checklist (tell me `works` or `doesn't + error`)
+## 5. Verification checklist
 
-- [ ] `monogram --version` prints `0.1.0`
+- [ ] `monogram --version` prints `0.8.0.dev0` (or later)
 - [ ] `monogram mcp-serve` starts (and you can Ctrl-C out)
-- [ ] Client (Claude Desktop / Cursor / OpenClaw) lists `monogram` with **5 tools**
+- [ ] Client (Claude Desktop / Cursor / OpenClaw) lists `monogram` with **13 tools**
 - [ ] A natural-language ask triggers `list_projects` and returns content
 - [ ] A natural-language ask triggers `today_brief` and returns a brief
-
-When this passes on **one** client on **one** platform, B3 is done; the
-same config pattern is how we'll ship the distribution play in v1.0.

@@ -5,16 +5,12 @@
 
 ---
 
-## 0. Why This Matters
+## 0. Scope
 
-Telegram is the primary channel — but not the only one.
+Telegram is the primary input. MCP is a read/query surface over the same
+vault, so non-Telegram clients (Claude Desktop, Cursor) can reach it.
 
-By exposing Monogram as an MCP server, every MCP client becomes a Monogram client.
-A Cursor user can query their scheduler while coding. A Claude Desktop user can
-ask "what did I save yesterday" without opening Telegram.
-
-**This is the real distribution play.** Telegram is one client. MCP makes
-Monogram infrastructure for every agent.
+Reads are unrestricted; writes are gated by a Telegram approval token.
 
 ---
 
@@ -25,92 +21,108 @@ Donated to Linux Foundation Dec 2025. Adopted by Anthropic, OpenAI, Google,
 toolmakers across the ecosystem.
 
 Server exposes tools via JSON schema. Any MCP-compatible client
-(Claude Desktop, Cursor, Codex, OpenClaw, etc.) can call them.
+(Claude Desktop, Cursor, Codex) can call them.
 
-Python SDK: `mcp` package. Server implementation ~50 lines.
+Python SDK: `mcp` package. Implementation lives in `src/monogram/mcp_server.py`.
 
 ---
 
-## 2. Exposed Tools (v1)
+## 2. Exposed Tools
+
+Source of truth: `src/monogram/mcp_server.py`. 13 tools across three
+groups — reads, one gated write, and LLM config.
+
+### Reads (no approval needed)
 
 ```
 read_project(project: str) -> str
-  Read a scheduler project file.
-  e.g. read_project("paper-a") → full markdown content
+  Read a project file by name (e.g. "paper-a") from projects/<slug>.md.
 
-update_project(project: str, note: str) -> bool
-  Append a note to a project's log.
-  e.g. update_project("paper-a", "Phase 0 experiment started")
-
-list_projects() -> list[str]
-  Return all active project names.
-
-search_wiki(query: str, limit: int = 5) -> list[dict]
-  Search knowledge base. Returns [{path, title, snippet, confidence}]
-
-read_wiki(path: str) -> str
-  Read a specific wiki page.
+list_projects() -> str
+  Return the vault README contents (which lists active projects).
 
 today_brief() -> str
-  Generate today's priorities based on scheduler + deadlines.
+  Generate today's priority brief from vault state via LLM.
 
 recent_activity(hours: int = 24) -> str
-  Summary of last N hours: GitHub commits, drops, wiki updates.
+  Summary of recent drops and GitHub activity over the last N hours.
 
-add_to_inbox(content: str, source: str = None) -> str
-  Drop raw content into wiki/_inbox/ for later classification.
+search_wiki(query: str, limit: int = 10) -> str
+  Search wiki/index.md entries by substring over slug/summary/tags.
 
-status() -> dict
-  Current state: active projects, at-risk, upcoming deadlines.
+query_life(area: str, days: int = 7, limit: int = 20) -> str
+  Recent entries from life/<area>.md. Credentials area is hard-blocked.
+
+get_morning_brief(date: str = "") -> str
+  Return daily/<date>/report.md (defaults to yesterday).
+
+current_project_state(slug: str) -> str
+  Return projects/<slug>.md. Falls back to projects/archive/.
+
+get_board() -> str
+  Return current board.md contents.
+```
+
+### Gated write (requires Telegram /approve_<token>)
+
+```
+add_wiki_entry(slug: str, title: str, body: str, tags: list[str] = [])
+  Create a new wiki/<slug>.md entry. Will NOT overwrite existing.
+```
+
+### LLM config
+
+```
+get_llm_config() -> str
+  Get provider/mode/models/base_url from mono/config.md.
+
+set_llm_config(provider?, mode?, models?, base_url?) -> str
+  Update LLM config. Requires /approve_<token> via Telegram.
+
+update_project(project: str, note: str) -> str
+  (Legacy) append a timestamped note line to projects/<slug>.md.
 ```
 
 ---
 
-## 3. Minimal Implementation
+## 3. Implementation shape
 
 ```python
-# core/mcp_server.py
+# src/monogram/mcp_server.py (excerpt)
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 server = Server("monogram")
 
+TOOLS: list[Tool] = [
+    Tool(
+        name="read_project",
+        description="Read a project file by name (e.g. 'paper-a').",
+        inputSchema={
+            "type": "object",
+            "properties": {"project": {"type": "string"}},
+            "required": ["project"],
+        },
+    ),
+    # ... 12 more
+]
+
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="read_project",
-            description="Read a scheduler project file",
-            inputSchema={
-                "type": "object",
-                "properties": {"project": {"type": "string"}},
-                "required": ["project"]
-            }
-        ),
-        Tool(
-            name="today_brief",
-            description="Get today's priorities",
-            inputSchema={"type": "object", "properties": {}}
-        ),
-        # ... other tools
-    ]
+    return TOOLS
 
 @server.call_tool()
 async def call_tool(name: str, args: dict) -> list[TextContent]:
     if name == "read_project":
-        content = gh_read(f"scheduler/projects/{args['project']}.md")
-        return [TextContent(type="text", text=content)]
-    
-    if name == "today_brief":
-        brief = await generate_today_brief()
-        return [TextContent(type="text", text=brief)]
-    
+        content = safe_read(f"projects/{args['project']}.md")
+        return [TextContent(type="text", text=content or "not found")]
     # ... other handlers
-
-if __name__ == "__main__":
-    stdio_server(server)
 ```
+
+Reads go through `safe_read`, which enforces `never_read_paths`
+(credentials are blocked unconditionally). Writes route through the
+Telegram approval queue before touching the vault.
 
 Run:
 ```bash
@@ -172,8 +184,9 @@ Tools that WRITE   → require explicit user confirmation per call
                      (most MCP clients have this built in)
 ```
 
-For `update_project`, `add_to_inbox` — client prompts user before execution.
-Same permission model as Telegram bot, just surfaced through different UI.
+Writes (`add_wiki_entry`, `set_llm_config`, `update_project`) require a
+Telegram `/approve_<token>` before the vault is touched. Same permission
+model as the Telegram bot, surfaced through a different UI.
 
 ---
 
@@ -185,36 +198,12 @@ monogram init
 monogram mcp-serve           # local stdio server
 ```
 
-That's it. No separate install, no extra config.
-One command exposes Monogram to every MCP client on the machine.
-
-For remote use (v2): HTTP transport with OAuth. Not needed for v1.
+Remote / networked use (HTTP transport + OAuth) is out of scope for v1.0.
 
 ---
 
-## 7. Why This Is High Leverage
+## 7. Roadmap
 
-**Before MCP:**
-```
-Monogram user base = people who want a Telegram-based agent
-```
-
-**After MCP:**
-```
-Monogram user base = people who use ANY agent and want scheduler + wiki
-                     (Claude Desktop users, Cursor users, OpenClaw users,
-                      Codex users, future MCP clients yet to exist)
-```
-
-The addressable market is 10-100x larger.
-And the implementation cost is one Python file.
-
----
-
-## 8. Roadmap
-
-- v0.2 — Basic MCP server: 5 core tools, stdio transport
-- v0.3 — All tools exposed, proper schemas
-- v0.4 — HTTP transport for remote clients (optional)
-- v1.0 — Published `@modelcontextprotocol/server-monogram` npm package
-        and included in ClawHub skill registry
+- **v0.8 (current)** — 13 tools, stdio transport, Telegram-gated writes
+- **v1.0** — tool-level audit log, richer `recent_activity` (GitHub digest)
+- **post-v1.0** — HTTP transport with OAuth for remote clients

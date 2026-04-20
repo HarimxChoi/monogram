@@ -6,14 +6,6 @@
 
 ---
 
-## 0. Critical Model Note
-
-**Gemini 2.0 Flash shuts down June 1, 2026.**
-All references in this codebase use `gemini-2.5-flash-lite` as the default
-baseline model. See `docs/architecture.md` section 3 for routing.
-
----
-
 ## 1. Core Principle
 
 Every source type — image, video, PDF, link — normalizes to markdown
@@ -23,14 +15,10 @@ before entering the agent pipeline.
 ANY SOURCE → [extraction layer] → markdown text → agent pipeline → scheduler/wiki/
 ```
 
-Why markdown:
-- LLM-native, zero token overhead from XML/HTML noise
-- Human-readable, editable directly in Obsidian
-- Git-diffable — every change is auditable
-- No vendor lock-in — files outlast any app
+Markdown is LLM-native, git-diffable, and editable in any plain-text editor.
 
-The extraction layer is dumb: it converts source to text. Classification,
-routing, and storage decisions happen in the agent pipeline (see
+The extraction layer is dumb: source → text. Classification, routing,
+and storage decisions happen in the agent pipeline (see
 `docs/architecture.md` section 1), not in the extractor.
 
 ---
@@ -64,82 +52,37 @@ Output: structured text description with extracted text and concepts.
 ### 2.2 YouTube
 
 ```
-youtube URL → yt-dlp (metadata) + youtube-transcript-api (transcript)
+youtube URL → yt-dlp (metadata) + youtube-transcript-api v1.x (transcript)
            → agent pipeline for summarization
 ```
 
-Transcript is preferred. Vision pass on keyframes only if transcript
-unavailable.
+Transcript is preferred. Whisper fallback is opt-in via
+`youtube_whisper_fallback` in vault config — CPU/GPU-heavy, transcript
+API covers >90% of cases. On transcript unavailable + Whisper disabled,
+extractor returns metadata-only with a warning.
 
-```python
-# ingestion/youtube.py
-from youtube_transcript_api import YouTubeTranscriptApi
-import yt_dlp
-
-def extract(video_url: str) -> dict:
-    video_id = extract_video_id(video_url)
-    
-    # metadata always
-    with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
-        info = ydl.extract_info(video_url, download=False)
-    
-    # transcript preferred
-    try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-        text = " ".join(seg["text"] for seg in transcript)
-    except Exception:
-        # fallback: yt-dlp audio → Whisper
-        text = whisper_transcribe_from_url(video_url)
-    
-    return {
-        "title": info.get("title"),
-        "channel": info.get("channel"),
-        "duration": info.get("duration"),
-        "upload_date": info.get("upload_date"),
-        "description": info.get("description"),
-        "transcript": text,
-    }
-```
+The `youtube-transcript-api` v1.x API is instance-based
+(`YouTubeTranscriptApi().fetch(video_id)`); the old static
+`get_transcript()` is deprecated. `ingestion/youtube.py` handles both
+for compatibility.
 
 ---
 
 ### 2.3 Instagram & TikTok
 
 ```
-ig/tiktok URL
-  ├── yt-dlp download (temp file)
-  │     ├── photo → image pipeline (2.1) → delete temp
-  │     └── video → keyframes + Whisper audio → delete temp
-  └── metadata: caption, hashtags, author, url, timestamp
+ig/tiktok URL → yt-dlp (metadata + caption, skip_download)
+             → caption + hashtags + author → markdown
 ```
 
-Media is ephemeral. Download → process → delete. Only markdown is stored.
+v0.8 scope: public content only, metadata + caption. No media download.
+Whisper transcription of video audio is deferred (opt-in, heavy).
+Private content (stories, private accounts) requires session cookies
+and is not supported in v0.8.
 
-- Public content: `yt-dlp` handles without auth
-- Private/stories: `instagrapi` with user-provided session cookie
-- Same pipeline for both platforms
-
-Normalized output:
-
-```markdown
-## [first 60 chars of caption]
-**Source:** https://instagram.com/p/xxx
-**Author:** @username
-**Type:** video | photo
-**Posted:** 2026-04-16
-**Duration:** 0:43 (video only)
-
-### Summary
-[visual content, speech transcription, key points]
-
-### Concepts
-[extracted topics relevant to wiki schema]
-
-### Hashtags
-#tag1 #tag2 #tag3
-```
-
-URL = permanent reference. Summary = searchable artifact.
+URL is the permanent reference; caption is the searchable artifact.
+SSRF-checked via `require_safe_url` before yt-dlp sees the URL — yt-dlp
+otherwise follows redirects without hostname validation.
 
 ---
 
@@ -147,44 +90,30 @@ URL = permanent reference. Summary = searchable artifact.
 
 ```
 URL
-  ├── arxiv.org   → arxiv API (structured metadata + abstract + citations)
+  ├── arxiv.org   → arxiv library (rate-limited client) + optional Semantic Scholar
   ├── github.com  → GitHub API (README + repo metadata)
-  ├── static page → trafilatura (fast body extraction)
-  └── JS-heavy    → jina.ai reader (r.jina.ai/{url}, free)
+  ├── static page → trafilatura
+  └── JS-heavy    → r.jina.ai reader (free, no auth)
 ```
 
-Tiered extraction with fallback:
+Fallback chain in `ingestion/web.py`:
 
-```python
-# ingestion/web.py
-def extract(url: str) -> str:
-    if "arxiv.org" in url:
-        return extract_arxiv(url)          # Semantic Scholar enrichment
-    if "github.com" in url:
-        return extract_github(url)
-    
-    # try trafilatura first (faster)
-    raw = trafilatura.fetch_url(url)
-    text = trafilatura.extract(raw) if raw else None
-    
-    if not text or len(text) < 200:
-        # fallback: jina reader
-        text = requests.get(f"https://r.jina.ai/{url}", timeout=30).text
-    
-    return text
-```
+1. `require_safe_url` — rejects private IPs, CGNAT, cloud metadata ranges, non-HTTP schemes.
+2. `trafilatura` with `output_format="markdown"`, `include_tables=True`.
+3. If result <200 chars: `r.jina.ai/{url}` via httpx (server-side JS render).
+4. If both empty: return trafilatura's output with `both_extractors_returned_empty` warning.
 
-arXiv enrichment adds:
-- Authors, year, abstract
-- Semantic Scholar citation count + related papers
-- Link to PDF
+arXiv (`ingestion/arxiv_source.py`) uses the `arxiv` library's shared
+process-wide `Client()` so concurrent drops respect the 1-request-per-3-seconds
+ToU. Semantic Scholar enrichment (citation counts) is opt-in via
+`vault_config.arxiv_enrichment`, degrades on 429.
 
 ---
 
 ### 2.5 Text (plain, personal notes)
 
-Direct passthrough for the agent pipeline. Flash-Lite's 1M context means
-no chunking at personal scale.
+Direct passthrough. Flash-Lite's 1M context means no chunking at
+personal scale.
 
 ```python
 # ingestion/text.py
@@ -194,41 +123,42 @@ def extract(text: str) -> str:
     return hierarchical_summarize(text)   # map-reduce for book-length input
 ```
 
-For large texts (books, long reports): map-reduce summarization.
-Each chunk → summary → summaries → final synthesis.
+For large texts (books, long reports): map-reduce. Each chunk → summary
+→ summaries → final synthesis.
 
 ---
 
 ### 2.6 PDF
 
-Two-tier based on complexity:
+Two-tier by quality gate:
 
 ```
 PDF
-  ├── simple (text-based, single column) → MarkItDown (~100× faster)
-  └── complex (multi-column, tables, scanned, scientific) → Docling
+  ├── fast path: PyMuPDF4LLM (native text, ~100× faster than Docling)
+  └── fallback:  Marker (Surya OCR, multi-column, tables, scanned)
 ```
 
-Complexity detection: if MarkItDown output has >10% garbled text or table
-markers fail → retry with Docling.
+Quality gate (`_quality_ok` in `ingestion/pdf.py`): if PyMuPDF4LLM
+returns <100 chars or printable-ratio <0.85, escalate to Marker.
 
 ```python
-# ingestion/pdf.py
-def extract(pdf_path: str) -> str:
-    from markitdown import MarkItDown
-    md = MarkItDown()
-    result = md.convert(pdf_path)
-    
-    if quality_check(result.text_content):
-        return result.text_content
-    
-    # fallback: Docling handles scientific papers, complex layouts
-    import docling
-    doc = docling.DocumentConverter().convert(pdf_path)
-    return doc.document.export_to_markdown()
+# ingestion/pdf.py (sketch)
+fast = await _pymupdf4llm_extract(pdf_bytes)
+if fast and _quality_ok(fast):
+    return fast
+marker = await _marker_extract(pdf_bytes)    # if marker-pdf installed
+return marker or fast or "[PDF extraction failed]"
 ```
 
-For arxiv papers: always Docling (multi-column, equations, tables).
+Why not MarkItDown + Docling (the old plan, per the module docstring):
+
+- MarkItDown's PDF success rate is ~25% (pdfminer.six backend, no layout analysis).
+- Docling is ~100× slower and ships ~1GB of HuggingFace models.
+- Marker handles scanned/multi-column PDFs with Surya OCR; ~1GB install but much higher accuracy.
+
+Download path is SSRF-hardened: `require_safe_url` pre-fetch, then
+`safe_stream_bytes` validates every redirect hop with a 20MB size cap.
+urllib fallback does not follow redirects (safe default).
 
 ---
 
@@ -236,121 +166,102 @@ For arxiv papers: always Docling (multi-column, equations, tables).
 
 ```
 docx / pptx / xlsx → MarkItDown → markdown
-hwp (Korean)       → LibreOffice CLI → PDF → 2.6 PDF pipeline
+hwp (Korean)       → LibreOffice CLI → PDF → §2.6 pipeline
 ```
 
-HWP is the hard case. No Python library handles it cleanly. LibreOffice
-headless conversion is the most reliable path:
+MarkItDown is appropriate here (not for PDFs): it wraps `python-docx`,
+`python-pptx`, `openpyxl` — all high-quality. 80-95% accuracy on common
+documents, ~10MB install, no ML models. See `ingestion/office.py`
+docstring for the rationale split.
 
-```bash
-libreoffice --headless --convert-to pdf document.hwp
-```
+HWP (`ingestion/hwp.py`) goes through LibreOffice headless. Real threat
+surface — CVE-2024-12425, CVE-2024-12426, CVE-2025-1080, CVE-2018-16858
+all trigger on document load. Mitigations:
 
-Then process via Docling.
+| Control | Purpose |
+|---|---|
+| Version gate: refuse LibreOffice < 25.2.1 | CVEs patched upstream |
+| Minimal env (PATH, LANG, HOME=temp only) | Blocks CVE-2024-12426 env exfil |
+| Fresh `UserInstallation` profile dir per run | Contains blast radius |
+| `--safe-mode --headless --norestore --nofirststartwizard` | Minimum feature surface |
+| 60s subprocess timeout | Bounds hang/CPU exhaustion |
+| 20MB input size cap | Bounds parser attack surface |
+
+The resulting PDF is handed to the §2.6 pipeline. See `SECURITY.md`.
 
 ---
 
 ## 3. Pipeline Summary (Extraction Layer Only)
 
-```
-SOURCE          LIBRARY                  OUTPUT FORMAT
-──────────────────────────────────────────────────────
-image           Gemini Flash-Lite vision text description
-youtube         yt-dlp + transcript-api  text + metadata
-instagram       yt-dlp + vision/whisper  text + url
-tiktok          yt-dlp + vision/whisper  text + url
-web link        trafilatura / jina.ai    markdown
-arxiv           arxiv API + S2           markdown + meta
-github          gh API + README          markdown + meta
-text            passthrough              text
-pdf (simple)    MarkItDown               markdown
-pdf (complex)   Docling                  markdown
-docx/pptx/xlsx  MarkItDown               markdown
-hwp             LibreOffice → Docling    markdown
-```
+| Source | Library | Output |
+|---|---|---|
+| image | Gemini Flash-Lite vision | text description |
+| youtube | yt-dlp + youtube-transcript-api v1.x | text + metadata |
+| instagram | yt-dlp (metadata + caption) | text + url |
+| tiktok | yt-dlp (metadata + caption) | text + url |
+| web link | trafilatura / r.jina.ai | markdown |
+| arxiv | arxiv lib + Semantic Scholar (opt-in) | markdown + meta |
+| github | gh API + README | markdown + meta |
+| text | passthrough | text |
+| pdf (fast) | PyMuPDF4LLM | markdown |
+| pdf (complex) | Marker (Surya OCR) | markdown |
+| docx/pptx/xlsx | MarkItDown | markdown |
+| hwp | LibreOffice → PDF → §2.6 | markdown |
 
-Once normalized to markdown, the agent pipeline (see `docs/architecture.md`
-section 1) takes over: orchestrator → classifier → extractor → verifier → writer.
+Once normalized to markdown, the agent pipeline (see
+`docs/architecture.md` section 1) takes over: orchestrator → classifier
+→ extractor → verifier → writer.
 
 ---
 
 ## 4. Dependencies
 
+Ingestion is split across opt-in extras. Install what you need.
+
+| Extra | Packages | Covers |
+|---|---|---|
+| `ingestion-video` | `yt-dlp>=2026.1`, `youtube-transcript-api>=1.0` | YouTube, Instagram, TikTok |
+| `ingestion-research` | `arxiv>=2.0`, `httpx>=0.25` | arXiv + Semantic Scholar |
+| `ingestion-pdf` | `pymupdf4llm>=0.0.17` | PDF fast path |
+| `ingestion-pdf-complex` | `marker-pdf>=1.0` | PDF fallback (Surya OCR, ~1GB) |
+| `ingestion-office` | `markitdown>=0.0.1` | docx/pptx/xlsx |
+| `ingestion-whisper` | `openai-whisper>=20231117` | YouTube/social audio fallback |
+| `ingestion-all` | video + research + pdf + office | everything except complex-pdf + whisper |
+
+```bash
+pip install 'mono-gram[ingestion-all]'           # common case
+pip install 'mono-gram[ingestion-pdf-complex]'   # add Marker for scanned PDFs
+pip install 'mono-gram[ingestion-whisper]'       # add Whisper for video audio
 ```
-# core extraction
-yt-dlp                  # youtube, instagram, tiktok
-youtube-transcript-api  # youtube transcripts
-trafilatura             # web content extraction
-markitdown              # office docs + simple PDFs
-docling                 # complex PDFs, scientific papers
 
-# audio transcription (fallback for video without transcript)
-openai-whisper          # local, free — OR openai API whisper
+System dependency: LibreOffice >=25.2.1 (for HWP; installed via OS package manager).
 
-# instagram (optional, for private content)
-instagrapi              # requires session cookie
-
-# office conversion
-# libreoffice           # system install, for hwp → pdf
-
-# existing package deps
-telethon
-aiogram
-PyGithub
-python-dotenv
-google-generativeai     # direct Gemini API (litellm wraps this)
-litellm                 # unified LLM abstraction
-```
+LLM access is not an ingestion extra — it ships as a core dep via
+`litellm`, which abstracts Gemini / Anthropic / OpenAI / Ollama.
 
 ---
 
-## 5. GitHub Activity Digest (v0.3+)
+## 5. GitHub Activity Digest
 
-A separate ingestion channel — not Telegram drops, but GitHub webhooks
-and polling. Each push, PR, or issue on watched repos becomes context for
-the agent.
+Implemented in v0.8 as the `monogram digest` subcommand (see
+`src/monogram/cli.py` and `src/monogram/digest.py`). Not Telegram drops
+— a separate ingestion channel that polls recent commits from watched
+repos into the daily log.
 
-```python
-# core/github_digest.py (sketch)
-
-# Watched repos from env:
-# MONOGRAM_WATCH_REPOS="<your-github-user>/mono,<your-github-user>/monogram,..."
-
-async def on_github_event(event: dict) -> None:
-    """Called from webhook handler or polling cron."""
-    
-    if event["type"] == "PushEvent":
-        summary = await classify_push(event)   # uses Flash-Lite
-        await github_store.append(
-            f"log/github-{datetime.now():%Y-%m}.md",
-            format_push_entry(event, summary),
-            f"digest: push to {event['repo']['name']}"
-        )
+```bash
+monogram digest --hours 24
 ```
 
-Daily cross-repo brief runs at 6am via GitHub Actions:
+Watched repos are configured via `MONOGRAM_WATCH_REPOS`. Each commit
+batch is summarized and appended to `daily/<date>/commits.md`.
 
-```
-📊 GitHub activity yesterday
-   monogram:   12 commits, Phase B1 merged
-   scheduler:   2 commits, side-project1 status updated
-   side-project2:    0 commits (paused — GPU blocker)
-
-⚠️ Stall warning: side-project3 hasn't seen activity in 14 days
-```
-
-Stall detection: any project in MEMORY.md marked `status: active` with
-no commits in 14+ days surfaces in the morning brief.
+Stall detection and the cross-repo morning brief format are planned
+for a later release; the current subcommand covers the ingestion half.
 
 ---
 
 ## 6. Where This Fits
 
-- **This doc:** how sources become markdown (the dumb layer)
-- **Your vault's `identity/` folder** (user-defined): what entity types
-  exist, confidence rules, routing
-- **`docs/architecture.md`:** agent pipeline, memory layout, model routing
-
-Extraction is the simplest layer. It's dumb on purpose — any intelligence
-(classification, verification, supersession) happens in the agent pipeline,
-not here.
+Extraction is the dumb layer — source to text. Intelligence
+(classification, verification, supersession) lives in the agent
+pipeline; see `docs/architecture.md`.
