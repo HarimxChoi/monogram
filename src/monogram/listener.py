@@ -37,9 +37,12 @@ async def handle_drop(text: str) -> str:
         return f"blocked: {result.blocked_reason or 'unknown'}"
 
     fc = result.file_change
-    ok = github_store.write_multi(fc.writes, fc.commit_message)
+    ok = github_store.write_atomic(fc.writes, fc.commit_message)
     if not ok:
-        return f"write failed: {len(fc.writes)} paths staged, some failed"
+        return (
+            f"write failed: atomic commit of {len(fc.writes)} paths did not "
+            "land (concurrent-writer race or API error). Re-drop to retry."
+        )
 
     # Credentials: minimal reply, never echo slug or content
     if fc.primary_path.startswith("life/credentials/"):

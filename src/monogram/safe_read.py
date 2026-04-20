@@ -18,9 +18,20 @@ log = logging.getLogger("monogram.safe_read")
 
 
 def is_blocked(path: str) -> bool:
-    """Return True if `path` is on the effective never-read list."""
+    """Return True if `path` is on the effective never-read list.
+
+    Defence in depth: absolute paths and any ``..`` segment are rejected
+    unconditionally (no legitimate caller uses them; see audit). This
+    prevents an attacker-supplied MCP argument like
+    ``area="../credentials/foo"`` from constructing a path that would
+    escape the ``life/credentials/`` prefix check.
+    """
     if not path:
         return False
+    parts = path.split("/")
+    if path.startswith("/") or ".." in parts:
+        log.warning("safe_read: rejected suspicious path %r", path)
+        return True
     cfg = load_vault_config()
     return any(path.startswith(p) for p in cfg.effective_never_read)
 

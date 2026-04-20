@@ -19,6 +19,7 @@ from mcp.types import TextContent, Tool
 from . import github_store
 from .llm import complete
 from .safe_read import safe_read
+from .taxonomy import slugify
 
 server: Server = Server("monogram")
 
@@ -176,8 +177,11 @@ async def list_tools() -> list[Tool]:
 
 
 async def _read_project(project: str) -> str:
-    # safe_read respects never_read_paths; legacy handler never read
-    # life/credentials/, but defense in depth is cheap.
+    # slugify + safe_read give two independent guards against an MCP
+    # client smuggling a path-traversal in the `project` argument.
+    project = slugify(project or "")
+    if project == "untitled":
+        return "Usage: read_project(project=<slug>)"
     content = safe_read(f"projects/{project}.md")
     return content or f"Project '{project}' not found."
 
@@ -188,6 +192,9 @@ async def _list_projects() -> str:
 
 
 async def _update_project(project: str, note: str) -> str:
+    project = slugify(project or "")
+    if project == "untitled":
+        return "Usage: update_project(project=<slug>, note=<text>)"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     line = f"- {timestamp} — {note}"
     ok = github_store.append(
