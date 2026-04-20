@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import logging
 from contextvars import ContextVar
+from functools import cache
 from typing import Type, TypeVar
 
 import litellm
@@ -29,7 +30,16 @@ from .config import load_config
 
 log = logging.getLogger("monogram.llm")
 
-_config = load_config()
+
+@cache
+def _cfg():
+    """Lazy app-config accessor. Defers .env loading until first call so that
+    importing monogram.llm (or any module that imports it) does not require
+    a valid .env at import time — helpful for tests, --help, and MCP clients
+    that may spawn the process from an arbitrary cwd."""
+    return load_config()
+
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -147,7 +157,7 @@ async def complete(
     a ContextVar for the duration of the call so the eval cassette shim can
     route to per-agent cassette files. The tag is NOT forwarded to litellm.
     """
-    chosen = model or _config.monogram_model
+    chosen = model or _cfg().monogram_model
     system = _apply_language(system)
 
     messages: list[dict] = []
@@ -177,7 +187,11 @@ async def complete(
         if token is not None:
             current_agent_tag.reset(token)
     _log_usage(response, chosen)
-    return response.choices[0].message.content
+    # Coerce None to "" so callers that call .strip() / parse JSON don't
+    # crash with AttributeError. A safety-filter or rate-limit response can
+    # legitimately return None content; downstream JSON validation will
+    # surface the empty string with a clearer error than AttributeError.
+    return response.choices[0].message.content or ""
 
 
 async def extract(
@@ -219,7 +233,7 @@ async def complete_vision(
 
     `agent_tag` routes cassette for eval. See `complete()` docstring.
     """
-    chosen = model or _config.monogram_model
+    chosen = model or _cfg().monogram_model
     b64 = base64.b64encode(image_bytes).decode()
     api_key, api_base = _credentials_for(chosen)
     vision_kwargs: dict = {
@@ -250,4 +264,4 @@ async def complete_vision(
         if token is not None:
             current_agent_tag.reset(token)
     _log_usage(response, chosen)
-    return response.choices[0].message.content
+    return response.choices[0].message.content or ""

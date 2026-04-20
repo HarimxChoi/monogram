@@ -582,6 +582,5 @@ schema validation against malformed input.
 
 System prompts live in the agent modules as constants (or, for the
 classifier, as a function that injects runtime `VaultConfig` values).
-On any prompt change, bump the version string; `log/llm_usage.jsonl`
-records it alongside the call so regressions are traceable. Prompts
-live in git — diffs are reviewable, history is permanent.
+On any prompt change, bump the version string. Prompts live in git —
+diffs are reviewable, history is permanent.

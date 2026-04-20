@@ -72,12 +72,17 @@ def get_vision_model() -> str | None:
     """Resolve the model string for vision calls.
 
     Fallback chain:
-      1. VaultConfig.llm_models['vision'] (explicit opt-in for BYO users)
-      2. 'gemini/gemini-2.5-flash' if GEMINI_API_KEY is set
-      3. None → caller should skip vision with a warning, not crash
+      1. VaultConfig.llm_models['vision'] (explicit opt-in — the right path
+         for BYO users on Anthropic/OpenAI)
+      2. Convenience fallback: `gemini/gemini-2.5-flash` if GEMINI_API_KEY is
+         set in .env, regardless of the text-tier provider. This is kept as
+         a convenience so a user on Anthropic-text can still process image
+         drops by setting GEMINI_API_KEY without also editing config.md.
+      3. None → caller should skip vision with a warning, not crash.
 
-    Text-only local models (Ollama text-tier qwen/llama/etc) cannot process
-    images; routing an image drop to them would 400 or hallucinate.
+    Text-only local models (Ollama qwen/llama/etc) cannot process images;
+    routing an image drop to them would 400 or hallucinate. That's why the
+    fallback favors Gemini over the configured text tier.
     """
     vcfg = load_vault_config()
     if vcfg.llm_models.get("vision", "").strip():
@@ -85,7 +90,9 @@ def get_vision_model() -> str | None:
     acfg = load_config()
     if acfg.gemini_api_key:
         log.info(
-            "get_vision_model: no llm_models.vision set; using Gemini fallback"
+            "get_vision_model: using Gemini convenience fallback "
+            "(gemini/gemini-2.5-flash); set llm_models.vision in config.md "
+            "to override."
         )
         return "gemini/gemini-2.5-flash"
     return None
@@ -171,18 +178,37 @@ def validate_llm_config() -> list[str]:
             f"llm_mode must be 'tiered' or 'single', got: {vcfg.llm_mode!r}"
         )
 
-    if provider == "gemini" and not acfg.gemini_api_key:
-        errors.append("llm_provider=gemini requires GEMINI_API_KEY in .env")
-    elif provider == "anthropic" and not acfg.anthropic_api_key:
-        errors.append("llm_provider=anthropic requires ANTHROPIC_API_KEY in .env")
-    elif provider == "openai" and not acfg.openai_api_key:
-        errors.append("llm_provider=openai requires OPENAI_API_KEY in .env")
-    elif provider == "openai-compat":
-        if not vcfg.llm_base_url:
-            errors.append(
-                "llm_provider=openai-compat requires llm_base_url in config.md "
-                "(e.g. http://localhost:1234/v1 for LM Studio)"
-            )
+    # openai-compat needs a base_url regardless of which tier the model
+    # string is assigned to — validate this up front.
+    if provider == "openai-compat" and not vcfg.llm_base_url:
+        errors.append(
+            "llm_provider=openai-compat requires llm_base_url in config.md "
+            "(e.g. http://localhost:1234/v1 for LM Studio)"
+        )
+
+    # Per-model credential validation (v0.8): iterate the actually-configured
+    # models and check the credential required by each model's `provider/`
+    # prefix. This catches mixed setups where e.g. `llm_provider: gemini`
+    # with `llm_models.mid: anthropic/claude-sonnet-4-6` needs BOTH keys.
+    tiers_to_check: list[str] = (
+        ["single"] if vcfg.llm_mode == "single"
+        else ["low", "mid", "high", "vision"]
+    )
+    seen: set[str] = set()
+    for tier in tiers_to_check:
+        m = vcfg.llm_models.get(tier, "").strip()
+        if not m:
+            continue
+        prefix = m.split("/", 1)[0] if "/" in m else ""
+        if prefix == "gemini" and not acfg.gemini_api_key:
+            seen.add(f"GEMINI_API_KEY (needed by llm_models.{tier}={m})")
+        elif prefix == "anthropic" and not acfg.anthropic_api_key:
+            seen.add(f"ANTHROPIC_API_KEY (needed by llm_models.{tier}={m})")
+        elif prefix == "openai" and not acfg.openai_api_key and not vcfg.llm_base_url:
+            # base_url present → openai-compat; "dummy" key acceptable.
+            seen.add(f"OPENAI_API_KEY (needed by llm_models.{tier}={m})")
+    for msg in sorted(seen):
+        errors.append(f"Missing credential: {msg}")
 
     return errors
 
