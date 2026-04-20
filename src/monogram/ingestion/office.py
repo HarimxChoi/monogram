@@ -113,7 +113,11 @@ async def _download(url: str, max_bytes: int = 20 * 1024 * 1024) -> bytes | None
             import urllib.request
             req = urllib.request.Request(url, headers={"User-Agent": "monogram-ingestion/0.8"})
             with urllib.request.urlopen(req, timeout=15) as resp:
-                return resp.read(max_bytes + 1)[:max_bytes]
+                data = resp.read(max_bytes + 1)
+                if len(data) > max_bytes:
+                    log.warning("office download exceeded size cap (%d bytes)", max_bytes)
+                    return None
+                return data
         except Exception as e:
             log.warning("office: urllib download failed: %s", e)
             return None

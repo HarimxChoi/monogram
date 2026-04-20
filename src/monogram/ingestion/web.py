@@ -1,28 +1,32 @@
 """Web page extractor — trafilatura primary, jina.ai reader fallback.
 
-Why trafilatura: it's the highest-accuracy body-text extractor for
-modern HTML (outperforms readability-lxml, newspaper3k, Goose3). Zero
-ML models, works fully offline once the page is fetched.
+Why trafilatura: highest-accuracy body-text extractor for modern HTML
+(outperforms readability-lxml, newspaper3k, Goose3). Zero ML models,
+works fully offline once the page is fetched.
 
-Why jina as fallback: for JS-heavy pages where trafilatura's HTML parse
-returns empty, jina.ai/reader renders the page server-side (free,
-no-auth) and returns clean markdown.
+Why jina as fallback: for JS-heavy pages where trafilatura returns
+empty, jina.ai/reader renders the page server-side (free, no-auth)
+and returns clean markdown.
 
-SSRF gate: `require_safe_url` BEFORE fetch — blocks private IPs and
-non-HTTP schemes. The optional jina fallback also requires the URL to
-have passed the safe check locally, since jina.ai will happily fetch
-internal URLs if we pass them in (no, they won't — jina resolves the
-URL from its own infra — but we don't want to tell jina about our
-internal topology either).
+SSRF gate: we fetch via `safe_stream_bytes` — which validates every
+redirect hop with `require_safe_url` — rather than `trafilatura.fetch_url`
+(which auto-follows redirects without per-hop validation). Parsing is
+then done in-process via `trafilatura.extract(html)`.
+
+Jina fallback strips the query string from the outbound URL so any
+tokens embedded in the drop don't end up in jina.ai's logs.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from urllib.parse import urlsplit, urlunsplit
 
-from .base import ExtractionResult, require_safe_url
+from .base import ExtractionResult, require_safe_url, safe_stream_bytes
 
 log = logging.getLogger("monogram.ingestion.web")
+
+_WEB_HTML_CAP = 5 * 1024 * 1024  # 5 MB — plenty for any real article
 
 
 async def extract(url: str) -> ExtractionResult:
@@ -75,7 +79,11 @@ async def extract(url: str) -> ExtractionResult:
 
 
 async def _trafilatura_extract(url: str) -> str | None:
-    """Use trafilatura to fetch + extract main body text."""
+    """Fetch via safe_stream_bytes (per-hop SSRF validation), then parse
+    with trafilatura.extract. We intentionally do NOT use
+    trafilatura.fetch_url — it auto-follows redirects without validating
+    each hop against require_safe_url.
+    """
     def _sync() -> str | None:
         try:
             import trafilatura  # type: ignore
@@ -83,21 +91,30 @@ async def _trafilatura_extract(url: str) -> str | None:
             log.debug("trafilatura not installed")
             return None
 
+        html_bytes = safe_stream_bytes(url, max_bytes=_WEB_HTML_CAP, timeout=15.0)
+        if not html_bytes:
+            return None
+
+        # Explicit decode — some trafilatura versions handle bytes, some
+        # expect str. utf-8 with errors="replace" is a safe default: the
+        # vast majority of modern web is UTF-8, and malformed bytes just
+        # become replacement chars rather than raising.
         try:
-            # trafilatura.fetch_url returns the raw HTML (or None)
-            downloaded = trafilatura.fetch_url(url)
-            if not downloaded:
-                return None
-            # extract returns the main body text as plain text or markdown
+            html = html_bytes.decode("utf-8", errors="replace")
+        except Exception as e:  # pragma: no cover — decode shouldn't raise here
+            log.warning("html decode failed for %s: %s", url, e)
+            return None
+
+        try:
             return trafilatura.extract(
-                downloaded,
+                html,
                 output_format="markdown",
                 include_comments=False,
                 include_tables=True,
                 favor_recall=False,
             )
         except Exception as e:
-            log.warning("trafilatura failed for %s: %s", url, e)
+            log.warning("trafilatura.extract failed for %s: %s", url, e)
             return None
 
     return await asyncio.to_thread(_sync)
@@ -106,15 +123,19 @@ async def _trafilatura_extract(url: str) -> str | None:
 async def _jina_reader_extract(url: str) -> str | None:
     """Fallback: jina.ai/reader serves clean markdown for any URL.
 
-    No auth. Free tier: 200 req/min.
+    Strips query/fragment so tokens embedded in the drop's URL don't
+    land in jina.ai's access logs. No auth. Free tier: 200 req/min.
     """
+    parts = urlsplit(url)
+    cleaned = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
     def _sync() -> str | None:
         try:
             import httpx
         except ImportError:
             return None
 
-        reader_url = f"https://r.jina.ai/{url}"
+        reader_url = f"https://r.jina.ai/{cleaned}"
         try:
             resp = httpx.get(
                 reader_url,
@@ -123,10 +144,10 @@ async def _jina_reader_extract(url: str) -> str | None:
             )
             if resp.status_code == 200 and resp.text:
                 return resp.text
-            log.debug("jina reader %d for %s", resp.status_code, url)
+            log.debug("jina reader %d for %s", resp.status_code, cleaned)
             return None
         except Exception as e:
-            log.warning("jina reader error for %s: %s", url, e)
+            log.warning("jina reader error for %s: %s", cleaned, e)
             return None
 
     return await asyncio.to_thread(_sync)

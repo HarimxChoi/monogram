@@ -95,7 +95,10 @@ class VaultConfig:
     # Cap on URLs processed per drop (guards against URL-spam).
     ingestion_max_urls_per_drop: int = 3
     # YouTube: use Whisper fallback when transcript is unavailable.
-    # Opt-in because Whisper is CPU/GPU-heavy (5-30s per minute of video).
+    # STUB in v0.8 — the hook exists but the download/transcribe pipeline
+    # is not yet implemented; opting in will only produce a warning log
+    # and fall through to metadata-only. Real implementation is tracked
+    # for v0.8.1. Opt-in is preserved so config doesn't break post-v0.8.1.
     youtube_whisper_fallback: bool = False
     # arXiv: enrich with Semantic Scholar citation count (adds 1-2s/URL)
     arxiv_enrichment: bool = True

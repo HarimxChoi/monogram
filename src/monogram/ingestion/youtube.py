@@ -193,20 +193,25 @@ async def _is_whisper_enabled() -> bool:
 
 
 async def _whisper_fallback(url: str) -> str | None:
-    """Whisper fallback — download audio via yt-dlp + transcribe.
+    """Whisper fallback — STUB in v0.8. Real implementation tracked for v0.8.1.
 
-    Stub: returns None unless whisper package is importable and
-    yt-dlp is configured. Real implementation at v0.8.1 if demand
-    justifies the complexity.
+    A user who has set ``youtube_whisper_fallback: true`` gets an explicit
+    warning (not a silent metadata-only fallback) so the mismatch between
+    expectation and reality is visible in logs.
     """
     try:
         import whisper  # type: ignore  # noqa: F401
     except ImportError:
-        log.info("whisper fallback requested but openai-whisper not installed")
+        log.warning(
+            "whisper fallback requested for %s but openai-whisper is not "
+            "installed (install monogram[ingestion-whisper])",
+            url,
+        )
         return None
 
-    # Not implementing full Whisper pipeline in this pass — scaffolding
-    # for future buildout. Returns None so caller falls through to
-    # metadata-only path.
-    log.info("whisper fallback stub — not yet implemented for %s", url)
+    log.warning(
+        "whisper fallback is a stub in v0.8 — video %s will fall through to "
+        "metadata-only. Track v0.8.1 for real implementation.",
+        url,
+    )
     return None
