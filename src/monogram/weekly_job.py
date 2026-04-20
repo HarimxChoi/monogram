@@ -187,7 +187,7 @@ async def run_weekly_job(push_to_telegram: bool = True, force: bool = False) -> 
         lint_report = run_lint()
         summary["lint"] = lint_report.summary()
         if lint_report.writes:
-            github_store.write_multi(
+            github_store.write_atomic(
                 lint_report.writes,
                 "monogram weekly lint: decay + index regeneration",
             )

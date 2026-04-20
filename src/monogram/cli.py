@@ -484,11 +484,11 @@ async def _init_skeleton(
             continue
         writes[f"life/{cat}.md"] = life_template(cat)
 
-    ok = github_store.write_multi(writes, "monogram init: skeleton + localization")
+    ok = github_store.write_atomic(writes, "monogram init: skeleton + localization")
     if ok:
-        click.echo(f"  ✓ Wrote {len(writes)} files to vault")
+        click.echo(f"  ✓ Wrote {len(writes)} files to vault in one commit")
     else:
-        click.echo("  ✗ Some writes failed — review repo state")
+        click.echo("  ✗ Atomic write did not land — re-run `monogram init`")
 
 
 @main.command("auth")

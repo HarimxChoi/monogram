@@ -12,6 +12,9 @@ from datetime import datetime, timedelta, timezone
 
 from . import github_store
 from .safe_read import safe_read
+from .taxonomy import slugify
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _today_str() -> str:
@@ -75,8 +78,8 @@ async def query_life(area: str, days: int = 7, limit: int = 20) -> str:
 
     Credentials area is always blocked.
     """
-    area = (area or "").strip().lower()
-    if not area:
+    area = slugify((area or "").strip())
+    if not area or area == "untitled":
         return json.dumps({"entries": [], "error": "empty area"})
     if area == "credentials":
         return json.dumps({"entries": [], "error": "credentials area blocked"})
@@ -103,6 +106,8 @@ async def query_life(area: str, days: int = 7, limit: int = 20) -> str:
 async def get_morning_brief(date: str = "") -> str:
     """Return daily/<date>/report.md. Defaults to yesterday."""
     date = (date or "").strip() or _yesterday_str()
+    if not _ISO_DATE_RE.match(date):
+        return f"Invalid date {date!r}; expected YYYY-MM-DD."
     content = safe_read(f"daily/{date}/report.md")
     if not content:
         return f"No morning brief for {date}."
@@ -114,8 +119,8 @@ async def get_morning_brief(date: str = "") -> str:
 
 async def current_project_state(slug: str) -> str:
     """Return frontmatter + body of projects/<slug>.md."""
-    slug = (slug or "").strip().lower()
-    if not slug:
+    slug = slugify((slug or "").strip())
+    if not slug or slug == "untitled":
         return "Usage: current_project_state(slug=<project-slug>)"
     content = safe_read(f"projects/{slug}.md")
     if not content:
