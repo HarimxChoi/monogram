@@ -16,7 +16,7 @@ Every file in the vault belongs to exactly one cell of a two-dimensional grid.
                  daily/*/commits.md
   ──────────────────────────────────────────────────────────────────────────
   STABLE         —                    wiki/              MEMORY.md
-  (path-indexed)                      scheduler/         wiki/_categories.json
+  (path-indexed)                      projects/          wiki/_categories.json
                                       identity/
 ```
 
@@ -49,8 +49,8 @@ mono/                            (= your Obsidian vault, = a git repo)
 │   ├── _unlabeled/
 │   └── <Category>/*.md
 │
-├── scheduler/                   stable state: active projects
-│   └── projects/*.md
+├── projects/                   stable state: active projects
+│   └── *.md
 │
 ├── reports/                     derived: multi-day rollups
 │   └── weekly/YYYY-Www.md
@@ -106,19 +106,19 @@ Two special locations:
 Reference material (papers, external docs) lives under `wiki/_refs/YYYY/`
 indexed by year of publication.
 
-## Scheduler (stable, state)
+## Projects (stable, state)
 
-`scheduler/projects/<name>.md` tracks the working state of each active
-project: phase, blockers, next actions, deadlines. One file per project.
+`projects/<name>.md` tracks the working state of each active project:
+phase, blockers, next actions, deadlines. One file per project.
 
-Unlike wiki entries, scheduler files are *mutable in place* — updates
+Unlike wiki entries, project files are *mutable in place* — updates
 overwrite the file. History lives in git commits, not in superseded
-copies on disk. Scheduler entries are state, not claims; there's no
+copies on disk. Project entries are state, not claims; there's no
 confidence level, no supersession chain.
 
 A project file covers the full lifecycle: active projects stay in
-`scheduler/projects/`, and the same file tracks the transition to
-inactive (no-op for N days) or done.
+`projects/`, and the same file tracks the transition to inactive
+(no-op for N days) or done.
 
 ## Reports (temporal, derived)
 
@@ -126,7 +126,7 @@ Two reports exist:
 
 - **Morning brief** at `daily/YYYY-MM-DD/report.md`. Generated 08:00
   local, summarizing the day just finished. Reads the previous day's
-  drops, commits, and any wiki/scheduler changes (via `git log`).
+  drops, commits, and any wiki/projects changes (via `git log`).
   Covers: what got done, what was learned, decisions made, cost/usage
   metrics, and calendar events detected in drops (surfaced as
   one-click Google Calendar URLs, never auto-created).
@@ -157,7 +157,7 @@ A typical drop touches up to five paths in one commit:
 ```
 always:         daily/YYYY-MM-DD/drops.md
                 log/pipeline.jsonl
-conditionally:  scheduler/projects/<name>.md      (scheduler update)
+conditionally:  projects/<name>.md                (project update)
                 wiki/<Category>/<slug>.md         (wiki entry, high/medium conf)
                 wiki/_unlabeled/<date>-<slug>.md  (wiki entry, low conf)
                 MEMORY.md                          (if stable state changed)
@@ -167,14 +167,14 @@ conditionally:  scheduler/projects/<name>.md      (scheduler update)
 Why it matters: the vault is a small distributed system — the agent
 writes, the user reads in Obsidian, the user edits, the agent reads back
 on the next turn. A partial write would leave the wiki pointing at a
-scheduler update that doesn't exist, or a `_categories.json` count that
+project update that doesn't exist, or a `_categories.json` count that
 disagrees with the actual file tree. One tree, one commit means the grid
 is always consistent at every SHA. If any part of the drop pipeline
 fails, nothing commits and the vault stays at the previous SHA.
 
 Git also serves as the temporal index for stable state. "What changed
 yesterday" is `git log --since=YYYY-MM-DD --name-only`. Reports use this
-to enumerate wiki and scheduler changes. The repo must not be shallow-
+to enumerate wiki and project changes. The repo must not be shallow-
 cloned and history must never be rewritten.
 
 ## Config

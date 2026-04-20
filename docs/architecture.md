@@ -8,24 +8,16 @@
 
 ---
 
-## 0. Design Principle
+## 0. Baseline
 
-**Quality through architecture, not through larger models.**
-
-A weak model making 5 verified calls produces more reliable output than a
-strong model making 1 unverified call. Monogram exploits this by using the
-cheapest capable model (the low tier) as the baseline and spending
-the quota savings on verification passes instead of heavier inference.
-
-The agent's reliability comes from the pipeline structure. The model is
-interchangeable.
+The default model is the low tier. Freed quota funds a verifier pass
+rather than a heavier model. Model choice is config, not code.
 
 ---
 
-## 1. The Always-Loaded Standing Context
+## 1. Always-Loaded Standing Context
 
-Every LLM call in Monogram loads a small standing context — your vault's
-`identity/` folder plus `MEMORY.md`. Nothing more, nothing less.
+Every LLM call loads the vault's `identity/` folder plus `MEMORY.md`.
 
 ```
 Your vault's identity/      user-maintained: behavior rules + domain schema
@@ -34,22 +26,14 @@ MEMORY.md                   ~5KB  pointer index — where everything lives
 Standing context floor  ~10-12KB  (~2500-3000 tokens)
 ```
 
-**Why these and nothing else:**
-
-- Your vault's `identity/` folder is where you, the user, keep the agent's
-  behavior rules and your domain schema (what kinds of things can exist and
-  how they transform: drop → wiki entry, project update → scheduler commit).
-  These files are NOT shipped in this repo — they live in your private vault.
-- `MEMORY.md` is the index — every file has a pointer here, always loaded
+- `identity/` — user-maintained behavior rules and domain schema. Not
+  shipped in this repo; lives in the private vault.
+- `MEMORY.md` — pointer index. One line per file.
 
 Everything else loads on demand, referenced by `MEMORY.md`.
 
-On Flash-Lite (250k TPM, 1M context window), a 3000-token floor is 0.3% of
-per-call capacity. Plenty of room for task content and tool responses.
-
-**Anti-pattern (what we're avoiding):** dumping the whole wiki or all project
-files into every call. That wastes tokens on irrelevant content, degrades
-attention to the actual task, and exhausts rate limits faster.
+On Flash-Lite (250k TPM, 1M context), a 3000-token floor is 0.3% of
+per-call capacity.
 
 ---
 
@@ -85,18 +69,15 @@ replaces all prior tier / folder / component taxonomies in this codebase.
 
 ### Why this replaces the earlier folder-count models
 
-Earlier drafts listed 5 folders (scheduler/ wiki/ log/ raw/ identity/) and
+Earlier drafts listed 5 folders (projects/ wiki/ log/ raw/ identity/) and
 a later draft listed 6 "components" (drops, conversations, commits, wiki,
-scheduler, reports). Neither count mapped cleanly onto both folders AND
-conceptual roles. The grid counts neither — it explains the two axes and
-lets the folder inventory follow from the cells.
+projects, reports). Neither count mapped cleanly onto both folders and
+conceptual roles. The grid drops the count and explains the two axes.
 
-The grid explains both inventory and rationale in one diagram:
-
-- Need time-indexed sources? → `daily/`
-- Need path-indexed state? → `wiki/`, `projects/`, `life/`, `identity/`
-- Need time-range summaries? → `reports/`
-- Need navigation? → `MEMORY.md`
+- Time-indexed sources → `daily/`
+- Path-indexed state → `wiki/`, `projects/`, `life/`, `identity/`
+- Time-range summaries → `reports/`
+- Navigation → `MEMORY.md`
 
 ### Full folder layout (v0.3)
 
@@ -159,14 +140,13 @@ The grid explains both inventory and rationale in one diagram:
 | `reports/` | temporal | multi-day derived |
 | `log/` | temporal | system telemetry (not user data) |
 | `raw/` | temporal | immutable source archive |
+| `MEMORY.md` | stable | navigation (derived from wiki + projects) |
 
 ### 2.1 User-configurable taxonomy
 
-Life categories are NOT hardcoded. They live in `config.md`'s YAML
-frontmatter, are loaded at process start by `VaultConfig`, and the
-classifier's system prompt is rebuilt per-call with the current list.
-Adding a new category is a single edit to config.md + restart.
-| `MEMORY.md` | stable | navigation (derived from wiki + scheduler) |
+Life categories live in `config.md`'s YAML frontmatter, loaded at process
+start by `VaultConfig`. The classifier's system prompt is rebuilt per-call
+with the current list. Adding a category = edit config.md + restart.
 
 ### Atomicity rule
 
@@ -280,9 +260,6 @@ weekly lint / 7                = 0.3 Pro avg
 Pro total                      = 1.3 / 100 RPD (1.3% util)
 ```
 
-All three tiers stay under 20% utilization at heavy personal use. 5x safety
-margin. Quota is not the bottleneck.
-
 ---
 
 ## 5. Escalation Rules
@@ -386,7 +363,7 @@ via known operations (read = update `last_accessed`, new source = update
 `last_confirmed`, contradiction = overwrite file; git history preserves
 the prior version).
 
-Scheduler project files add: `status: active | inactive | done`,
+`projects/` files add: `status: active | inactive | done`,
 `github_repos: [list]`, optional `deadline: YYYY-MM-DD`. Define the full
 field list in your vault's `identity/` folder (user-defined).
 
@@ -406,7 +383,7 @@ only pointers to where facts live.
 Example:
 
 ```markdown
-# MEMORY.md — scheduler repo pointer index
+# MEMORY.md — pointer index
 # Updated: 2026-04-17
 
 ## Active projects
@@ -433,20 +410,14 @@ target category sections via the weekly lint pass.
 
 ## 10. Standing Context Discipline
 
-The agent must not infer facts from standing context (SCHEMA, MEMORY, CORE).
-These are hints and pointers, not ground truth.
+Standing context is pointers, not ground truth. Before asserting a fact,
+the agent either:
 
-Before asserting any fact in output, the agent either:
+- Reads the file that `MEMORY.md` points to, OR
+- Verifies via GitHub API (for project state), OR
+- Asks the user to confirm.
 
-- Reads the specific file that MEMORY.md points to, OR
-- Verifies via GitHub API (for scheduler state), OR
-- Asks the user to confirm
-
-This is the "memory as hint" discipline. Standing context exists to guide
-the agent toward the right files and the right tone, not to substitute for
-reading the source of truth.
-
-Encoded as a rule in your vault's `identity/` folder (user-defined).
+Encoded as a rule in the vault's `identity/` folder.
 
 ---
 
@@ -486,110 +457,54 @@ Writes: projects/paper-a.md (confidence: medium)
 Cost: 4 Flash-Lite calls, ~1.8k tokens
 ```
 
-This replaces "how do I know what the agent did?" with grep.
-
-Horthy's 12-Factor Agents Factor 6 (own your context window) and Factor 9
-(compact errors into context) are encoded here — every interaction produces
-a compact, durable log entry that future agent runs can reference.
+Grep the log to see what the agent did.
 
 ---
 
-## 13. Non-Goals — What Monogram Explicitly Does Not Build
+## 13. Non-Goals
 
-For v1, Monogram scopes out these patterns even though they appear in
-recent agent architectures:
+Scoped out for v1:
 
-- **Autonomous tick-loop daemon modes.** Personal agent does not need
-  always-on background execution. Cron-based proactive layer is sufficient.
-- **Sub-agent swarms with fork/teammate/worktree delegation.** Single
-  pipeline with verifier escalation covers the same reliability surface.
+- **Tick-loop daemon modes.** Cron-based proactive layer covers it.
+- **Sub-agent swarms / worktree delegation.** Single pipeline with
+  verifier escalation covers the reliability surface.
 - **Long-running cloud offload for planning.** Gemini Pro 5 RPD handles
-  the heavy tasks. No separate infrastructure needed.
-- **Parallel branch exploration (Tree of Thoughts).** Adds cost, adds
-  complexity, adds no clear reliability win for structured domain.
-- **Typed knowledge graph with entity extraction.** Markdown pointer
-  index handles personal scale. Graph becomes useful past ~2000 entries.
+  heavy tasks.
+- **Parallel branch exploration (Tree of Thoughts).** No clear reliability
+  win for structured domain.
+- **Typed knowledge graph.** Markdown pointer index handles personal
+  scale; graph becomes useful past ~2000 entries.
 - **Vector database.** Long context + grep + MEMORY.md covers retrieval
-  needs at personal scale. Vectors add cost and indexing complexity.
+  at personal scale.
 - **Multi-agent mesh sync.** Single user, single agent instance.
-- **Automatic contradiction resolution.** Verifier flags contradictions;
-  user decides. No silent knowledge overwrites.
+- **Automatic contradiction resolution.** Verifier flags; user decides.
 
-These remain on the table for v2+ if scale or use case demands them.
+On the table for v2+ if scale demands.
 
 ---
 
 ## 14. Architectural Foundations
 
-Monogram's pipeline design synthesizes several established patterns:
-
-- **ReAct** (Yao et al. 2022) — reason-act-observe loop. The pipeline's
-  stages 1-4 are ReAct with explicit stage boundaries.
-- **Chain-of-Verification / CoVe** (Dhuliawala et al. 2023) — drafted
-  output plus independent verification pass. Stage 4 is CoVe.
+- **ReAct** (Yao et al. 2022) — reason-act-observe loop. Pipeline stages
+  1-4 are ReAct with explicit stage boundaries.
+- **Chain-of-Verification / CoVe** (Dhuliawala et al. 2023) — draft plus
+  independent verification pass. Stage 4 is CoVe.
 - **12-Factor Agents** (Horthy 2024) — own your prompts, externalize
   state, stateless execution. GitHub commits = externalized state.
-  Pipeline stages = explicit control flow.
-- **A-MEM** (Xu et al. 2025, arXiv:2502.12110) — atomic memory with linked
-  supersession; ablation shows −6 F1 when supersession is removed.
-- **Zep / Graphiti** (Rasmussen et al. 2025, arXiv:2501.13956) —
-  bi-temporal knowledge graph with episodic + semantic + community
-  hierarchy; LongMemEval 63.8%. Informs the 2×3 grid split.
-- **MemMachine** (arXiv:2604.04853) — non-lossy episodic storage; LoCoMo
-  0.92. Informs daily/ being append-only sources.
-- **Supermemory** (supermemory.ai/research) — temporal reasoning 76.69% on
-  LongMemEval_s via temporal metadata coupling. Informs bi-temporal
-  frontmatter.
-- **Multi-Agent Report Generation** (LlamaIndex 2024) — researcher → writer
-  → editor pipeline beats single-LLM report generation. Informs the
-  reports/ derivation layer.
+- **Calibrated confidence** (Tian et al. 2023, arXiv:2305.14975) — enum,
+  not float; continuous self-assessment is pattern-matching.
 - **Karpathy LLM Wiki** (gist 442a6bf) — markdown + git, no RAG at
   personal scale.
-- **Pointer index pattern** (described in public analyses of Anthropic's
-  Claude Code, April 2026) — always-loaded MEMORY.md with pointers only.
-- **Calibrated confidence** (Tian et al. 2023, arXiv:2305.14975) — enum,
-  not float; continuous self-assessment is pattern-matching, not
-  calibration.
-
-Monogram is not a reimplementation of any single one of these. It's a
-synthesis chosen for a specific target: one user, personal scale,
-free-tier model budget, mobile-first capture.
-
-Citations are intentionally centralized here. Peer docs (storage-layout,
-agents, ingestion) reference this section rather than duplicate.
 
 ---
 
-## 15. What Gets Built When
+## 15. Roadmap
 
-**v0.1 (Phases A–E — complete):** Full 5-stage pipeline with real
-Extractor + Verifier, Telethon listener, aiogram bot, `monogram run`
-end-to-end loop, morning 08:00 job (per-project commits + board update
-+ brief), Sunday 21:00 weekly report + 67-day archival sweep, calendar
-event detection → URL push inside morning brief. 68 tests pass.
+- **v0.8 (current)** — core pipeline, ingestion, hardening, observability,
+  encrypted web UI (gcs / self-host / mcp-only), morning + weekly jobs.
+- **v1.0** — tag cut after dogfood wraps (package already live on PyPI as `mono-gram`).
+- **v2.0** — bi-temporal metadata (`valid_from` / `valid_until`),
+  YAML-level supersession linking, Notion one-way sync, natural-language
+  project management via bot.
 
-**v0.6 — Web UI:** Password-protected, client-side decrypted dashboard
-rendering the PARA-mapped vault (critical path, project board, life
-timeline, wiki, today). Three delivery modes sharing one backend ABC:
-
-- `gcs` — GCP Cloud Storage, stable bookmarkable URL, ~$0/month
-- `self-host` — aiohttp behind cloudflared quick tunnel (rotating URL)
-- `mcp-only` — no web UI; use Claude Desktop / Cursor MCP client
-
-Pipeline: `webgen.render_bundle()` → `encryption_layer.wrap(plaintext,
-password)` → backend.publish(). AES-256-GCM with 600k PBKDF2 iterations
-means the public bucket can host ciphertext safely. Regenerated on
-`/webui` bot command and at end of morning brief.
-
-New files: `src/monogram/webgen.py`, `src/monogram/encryption_layer.py`,
-`src/monogram/webui/__init__.py` + 3 backends, 10 template files,
-`src/monogram/bot_webui_cmds.py`, `src/monogram/cli_webui.py`.
-
-**v1.0:** `monogram search` (covers `daily/` + `raw/` transparently).
-PyPI release.
-
-**v2.0:** Bi-temporal metadata (`valid_from`/`valid_until`), YAML-level
-supersession linking, Notion one-way sync, natural-language project
-management via bot.
-
-**Permanently cut:** Google Calendar 2-way OAuth, monthly/yearly reports.
+Cut: Google Calendar 2-way OAuth, monthly/yearly reports.
