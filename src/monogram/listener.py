@@ -1,10 +1,13 @@
 """C3 — Telethon Saved Messages watcher.
 
 Watches outgoing messages to self (Saved Messages) and runs each through
-the pipeline. Commits ALL staged writes via github_store.write_multi().
+the pipeline. Commits ALL staged writes via github_store.write_atomic().
 Photos are OCR'd via Gemini vision and combined with any caption text.
 """
 from __future__ import annotations
+
+import logging
+from functools import cache
 
 from telethon import TelegramClient, events
 
@@ -13,7 +16,13 @@ from .config import load_config
 from .llm import complete_vision
 from .pipeline import run_pipeline
 
-config = load_config()
+log = logging.getLogger("monogram.listener")
+
+
+@cache
+def _cfg():
+    """Lazy app-config accessor — defers .env loading until first use."""
+    return load_config()
 
 VISION_OCR_PROMPT = (
     "Transcribe and describe this image. If it contains text "
@@ -58,54 +67,78 @@ async def run_listener(send_reply_fn):
 
     send_reply_fn: async callable(user_id: int, text: str) — e.g. bot.send_reply.
     """
+    cfg = _cfg()
     client = TelegramClient(
         "monogram_session",
-        config.telegram_api_id,
-        config.telegram_api_hash,
+        cfg.telegram_api_id,
+        cfg.telegram_api_hash,
     )
     await client.start()
     me = await client.get_me()
-    print(f"Listener started for {me.username or me.id}")
+    log.info("Listener started for %s", me.username or me.id)
 
     @client.on(events.NewMessage(outgoing=True))
     async def saved_handler(event):
         if event.peer_id.user_id != me.id:
             return
 
-        caption = event.raw_text or ""
-        text = caption
+        try:
+            caption = event.raw_text or ""
+            text = caption
 
-        if event.photo or (event.document and event.document.mime_type and
-                           event.document.mime_type.startswith("image/")):
-            from .models import get_vision_model
+            if event.photo or (event.document and event.document.mime_type and
+                               event.document.mime_type.startswith("image/")):
+                from .models import get_vision_model
 
-            vision_model = get_vision_model()
-            try:
-                image_bytes = await event.download_media(file=bytes)
-            except Exception as e:
-                await send_reply_fn(config.telegram_user_id, f"image download failed: {e}")
-                return
-
-            if not vision_model:
-                # No vision-capable model configured. Don't crash the pipeline —
-                # fall through to caption-only with an explicit placeholder.
-                placeholder = "[image — vision not configured; set llm_models.vision in mono/config.md]"
-                text = f"{caption}\n\n{placeholder}".strip() if caption else placeholder
-            else:
+                vision_model = get_vision_model()
                 try:
-                    description = await complete_vision(
-                        image_bytes, VISION_OCR_PROMPT, model=vision_model
-                    )
-                    text = f"{caption}\n\n[image]\n{description}".strip()
+                    image_bytes = await event.download_media(file=bytes)
                 except Exception as e:
-                    await send_reply_fn(config.telegram_user_id, f"vision error: {e}")
+                    await send_reply_fn(cfg.telegram_user_id, f"image download failed: {e}")
                     return
 
-        if not text:
-            return
+                if not vision_model:
+                    placeholder = "[image — vision not configured; set llm_models.vision in mono/config.md]"
+                    text = f"{caption}\n\n{placeholder}".strip() if caption else placeholder
+                else:
+                    try:
+                        description = await complete_vision(
+                            image_bytes, VISION_OCR_PROMPT, model=vision_model
+                        )
+                        text = f"{caption}\n\n[image]\n{description}".strip()
+                    except Exception as e:
+                        # Preserve caption: if user wrote text alongside the image,
+                        # don't lose it just because vision failed.
+                        if caption.strip():
+                            await send_reply_fn(
+                                cfg.telegram_user_id,
+                                f"vision error ({e}); processing caption only.",
+                            )
+                            text = caption
+                        else:
+                            await send_reply_fn(cfg.telegram_user_id, f"vision error: {e}")
+                            return
 
-        reply = await handle_drop(text)
-        await send_reply_fn(config.telegram_user_id, reply)
+            if not text:
+                # OCR returned empty AND no caption — explicit reply so the
+                # drop doesn't disappear silently.
+                await send_reply_fn(
+                    cfg.telegram_user_id,
+                    "image OCR returned empty — skipped",
+                )
+                return
+
+            reply = await handle_drop(text)
+            await send_reply_fn(cfg.telegram_user_id, reply)
+        except Exception as e:
+            # Top-level guard: handle_drop / pipeline / commit can raise on
+            # GitHub 5xx, network blips, LLM provider errors. Without this,
+            # Telethon swallows the exception and the user sees nothing.
+            log.exception("saved_handler unexpected error")
+            try:
+                await send_reply_fn(cfg.telegram_user_id, f"drop error: {e}")
+            except Exception:
+                pass
 
     await client.run_until_disconnected()
 

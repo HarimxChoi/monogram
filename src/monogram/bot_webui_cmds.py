@@ -8,6 +8,7 @@ Only the whitelisted telegram_user_id can use these commands.
 from __future__ import annotations
 
 import logging
+from functools import cache
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -20,11 +21,16 @@ from .vault_config import load_vault_config, reload_vault_config
 log = logging.getLogger("monogram.bot_webui")
 
 router = Router()
-_cfg = load_config()
+
+
+@cache
+def _cfg():
+    """Lazy app-config accessor — defers .env loading until first use."""
+    return load_config()
 
 
 def _user_allowed(msg: Message) -> bool:
-    return msg.from_user.id == _cfg.telegram_user_id
+    return msg.from_user.id == _cfg().telegram_user_id
 
 
 def _parse_arg(text: str | None) -> str | None:
@@ -92,7 +98,7 @@ async def cmd_webui(msg: Message):
         )
         return
 
-    password = _cfg.monogram_webui_password
+    password = _cfg().monogram_webui_password
     if not password:
         await msg.answer(
             "MONOGRAM_WEBUI_PASSWORD not set in .env. "
@@ -134,7 +140,7 @@ async def show_webui(msg: Message):
     elif vc.webui_mode == "self-host":
         port = (vc.webui_self_host or {}).get("port", 8765)
         lines.append(f"Port:     `{port}`")
-    pw_set = "set" if _cfg.monogram_webui_password else "**NOT SET**"
+    pw_set = "set" if _cfg().monogram_webui_password else "**NOT SET**"
     lines.append(f"Password: {pw_set}")
     await msg.answer("\n".join(lines), parse_mode="Markdown")
 

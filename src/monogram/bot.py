@@ -6,7 +6,9 @@ v0.4: /config_llm_* commands registered via bot_config_cmds router.
 """
 from __future__ import annotations
 
+import logging
 import re
+from functools import cache
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -16,8 +18,22 @@ from . import github_store
 from .config import load_config
 from .listener import handle_drop
 
-config = load_config()
-bot = Bot(token=config.telegram_bot_token)
+log = logging.getLogger("monogram.bot")
+
+
+@cache
+def _cfg():
+    """Lazy app-config accessor — defers .env loading until first use."""
+    return load_config()
+
+
+@cache
+def bot() -> Bot:
+    """Lazy Bot instance — constructed on first call so importing
+    monogram.bot does not require a valid telegram_bot_token at import time."""
+    return Bot(token=_cfg().telegram_bot_token)
+
+
 dp = Dispatcher()
 
 # v0.4: register /config_llm_* command router
@@ -39,6 +55,8 @@ dp.include_router(_stats_router)
 
 @dp.message(Command("start"))
 async def cmd_start(msg: Message):
+    if msg.from_user.id != _cfg().telegram_user_id:
+        return
     await msg.answer(
         "Monogram online.\n\n"
         "Drop anything in *Saved Messages* — links, thoughts, voice notes.\n"
@@ -49,6 +67,8 @@ async def cmd_start(msg: Message):
 
 @dp.message(Command("status"))
 async def cmd_status(msg: Message):
+    if msg.from_user.id != _cfg().telegram_user_id:
+        return
     content = github_store.read("README.md") or "(scheduler README empty)"
     await msg.answer(content[:4000], parse_mode="Markdown")
 
@@ -56,7 +76,7 @@ async def cmd_status(msg: Message):
 @dp.message(Command("done"))
 async def cmd_done(msg: Message):
     """Mark a project done: `/done paper-a` → moves to scheduler/archive/."""
-    if msg.from_user.id != config.telegram_user_id:
+    if msg.from_user.id != _cfg().telegram_user_id:
         return
     slug = _extract_slug(msg.text)
     if not slug:
@@ -69,7 +89,7 @@ async def cmd_done(msg: Message):
 @dp.message(Command("revive"))
 async def cmd_revive(msg: Message):
     """Reverse /done: move project back from archive to projects/."""
-    if msg.from_user.id != config.telegram_user_id:
+    if msg.from_user.id != _cfg().telegram_user_id:
         return
     slug = _extract_slug(msg.text)
     if not slug:
@@ -115,7 +135,7 @@ async def _execute_pending(entry, msg: Message) -> None:
 
 @dp.message()
 async def handle_any(msg: Message):
-    if msg.from_user.id != config.telegram_user_id:
+    if msg.from_user.id != _cfg().telegram_user_id:
         return
 
     text = (msg.text or "").strip()
@@ -162,9 +182,16 @@ async def handle_any(msg: Message):
         await msg.answer("Token expired or not found.")
         return
 
-    # Otherwise, treat as a drop
-    reply = await handle_drop(text)
-    await msg.answer(reply, parse_mode="Markdown")
+    # Otherwise, treat as a drop. Wrap in try/except so a pipeline /
+    # commit error reaches the user instead of aiogram swallowing it.
+    try:
+        reply = await handle_drop(text)
+        await msg.answer(reply, parse_mode="Markdown")
+    except Exception as e:
+        log.exception("handle_any drop error")
+        # parse_mode=None: exception strings often contain unescaped
+        # markdown chars (paths, brackets) that crash aiogram parser.
+        await msg.answer(f"drop error: {e}", parse_mode=None)
 
 
 def _extract_slug(text: str | None) -> str | None:
@@ -229,8 +256,13 @@ def _flip_status_frontmatter(content: str, new_status: str) -> str:
 
 
 async def send_reply(user_id: int, text: str):
-    """Called by listener to push drop confirmations into bot chat."""
-    await bot.send_message(user_id, text, parse_mode="Markdown")
+    """Called by listener to push drop confirmations into bot chat.
+
+    Uses parse_mode=None for safety: drop replies may begin with
+    "drop error: ..." carrying raw exception text with unescaped
+    markdown chars; let it through as plain text instead of crashing.
+    """
+    await bot().send_message(user_id, text, parse_mode=None)
 
 
 async def push_text(text: str, chunk_size: int = 3800) -> None:
@@ -243,15 +275,16 @@ async def push_text(text: str, chunk_size: int = 3800) -> None:
     """
     from aiogram.client.bot import Bot as AiogramBot
 
+    cfg = _cfg()
     text = text or "(empty message)"
-    async with AiogramBot(token=config.telegram_bot_token) as one_shot:
+    async with AiogramBot(token=cfg.telegram_bot_token) as one_shot:
         for i in range(0, len(text), chunk_size):
             await one_shot.send_message(
-                config.telegram_user_id,
+                cfg.telegram_user_id,
                 text[i : i + chunk_size],
                 parse_mode=None,  # plain text — briefs may contain un-escaped markdown
             )
 
 
 async def run_bot():
-    await dp.start_polling(bot)
+    await dp.start_polling(bot())
