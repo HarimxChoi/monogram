@@ -127,7 +127,18 @@ async def process_one(path: str) -> bool:
         _delete_sidecar(path)  # release claim so retry is possible next cycle
         return False
 
-    if reply.startswith("blocked") or "write failed" in reply:
+    # Heuristic: handle_drop returns one of these prefixes/substrings
+    # when the drop did NOT commit. Keep this list in sync with the
+    # reply strings emitted by listener.handle_drop / saved_handler.
+    _NON_COMMIT_MARKERS = (
+        "blocked",
+        "write failed",
+        "drop error",
+        "image OCR returned empty",
+        "image download failed",
+        "vision error",
+    )
+    if any(marker in reply for marker in _NON_COMMIT_MARKERS):
         log.warning("queue_poller: %s did not commit — keeping: %s", path, reply)
         _delete_sidecar(path)  # release claim so retry is possible
         return False

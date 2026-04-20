@@ -3,9 +3,18 @@ import sys
 
 
 def test_version():
+    import re
+
     import monogram
 
-    assert monogram.__version__ == "0.1.0"
+    # __version__ is read from package metadata (see src/monogram/__init__.py).
+    # Assert it's a recognisable version string rather than a hardcoded value
+    # so the test survives version bumps without being touched.
+    v = monogram.__version__
+    assert v and v != "0.0.0+unknown", f"unexpected version {v!r}"
+    assert re.match(r"^\d+\.\d+(\.\d+)?([a-z0-9.+-]*)?$", v), (
+        f"version {v!r} does not look like a PEP 440 string"
+    )
 
 
 def test_cli_module_importable():

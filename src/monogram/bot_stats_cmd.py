@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import cache
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -25,13 +26,18 @@ from .config import load_config
 log = logging.getLogger("monogram.bot_stats_cmd")
 
 router = Router()
-_cfg = load_config()
+
+
+@cache
+def _cfg():
+    """Lazy app-config accessor — defers .env loading until first use."""
+    return load_config()
 
 
 @router.message(Command("stats"))
 async def stats_cmd(message: Message):
     """Reply with pipeline health metrics from log/pipeline.jsonl."""
-    if str(message.from_user.id) != str(_cfg.telegram_user_id):
+    if str(message.from_user.id) != str(_cfg().telegram_user_id):
         return  # silent ignore non-owner
 
     # Parse optional window arg: /stats 30 → 30 days
