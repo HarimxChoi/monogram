@@ -181,7 +181,6 @@ Roadmap: see CHANGELOG.md for shipped features.
 - [docs/setup/mcp-clients.md](docs/setup/mcp-clients.md) — Claude Desktop / Cursor integration
 - [docs/eval.md](docs/eval.md) — eval harness + kill-switch design
 - [SECURITY.md](SECURITY.md) — threat model + disclosure
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to help
 
 ## License
 
