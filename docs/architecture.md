@@ -439,22 +439,33 @@ buttons. Nothing auto-merges without user approval.
 
 ---
 
-## 12. Observability — Every Call Logged
+## 12. Observability — Per-Drop Trace
 
-Every LLM call writes one line to `log/llm_usage.jsonl`:
+One pipeline run produces two artifacts.
+
+`log/pipeline.jsonl` — append-only JSONL, one line per drop. Fields:
+`ts`, `drop_id`, `duration_ms`, `stages[]`, `escalated`, `blocked_reason`,
+`target_kind`, `slug`, `drop_type`, `target_path`, `target_confidence`,
+`verifier_ok`, `provider`, `model_tier_usage` (tier→call count),
+`stage_latency_ms` (stage→cumulative_ms). Machine-readable; `monogram
+stats` derives p50/p95/p99 latency and per-stage breakdowns from it.
 
 ```json
-{"ts":"2026-04-17T14:32:01Z","stage":"classifier","model":"gemini-2.5-flash-lite","input":412,"output":58,"thinking":false,"escalated":false,"drop_id":"abc123"}
+{"ts":"2026-04-17T14:32:03Z","drop_id":"abc123","duration_ms":2180,"stages":["orchestrator","classifier","extractor","verifier","writer"],"escalated":false,"target_kind":"wiki","slug":"rtmpose","verifier_ok":true,"model_tier_usage":{"low":4},"stage_latency_ms":{"classifier":410,"extractor":720,"verifier":880}}
 ```
 
-Every agent decision writes one block to `log/decisions.md`:
+`log/decisions.md` — human-readable append log, one block per drop,
+written by the Writer stage. Captures pipeline path, confidence, files
+written, and verifier reasoning. Credentials slug is redacted.
 
 ```markdown
 ## 2026-04-17T14:32:03Z
-Pipeline: drop_abc123
-Path: orchestrator → classifier(0.89) → extractor(0.82) → verifier(ok) → writer
-Writes: projects/paper-a.md (confidence: medium)
-Cost: 4 Flash-Lite calls, ~1.8k tokens
+Pipeline: technical_link
+Target: wiki / slug=rtmpose
+Path: orchestrator → classifier → extractor → verifier → writer
+Confidence: medium
+Writes: daily/2026-04-17/drops.md, wiki/rtmpose.md, MEMORY.md, log/decisions.md
+Reasoning: single-source paper claim; confidence capped at medium.
 ```
 
 Grep the log to see what the agent did.

@@ -190,9 +190,9 @@ budget caps, category overrides. One file, one source of truth.
 ## Log
 
 `log/pipeline.jsonl` is the system telemetry stream. One JSON object per
-line, append-only. Each line captures a single pipeline run: timestamp,
-drop ID, classification outcome, per-stage LLM calls with token counts
-and costs, files written, and any error state.
+line, append-only. Each line captures a single pipeline run (not per LLM
+call): timestamp, drop ID, classification outcome, per-stage latency,
+tier-call counts, files written, and any error state.
 
 This is the audit trail for *how the agent behaved*, separate from the
 vault content itself. Reports pull metrics from it (calls per day,
