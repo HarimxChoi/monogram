@@ -24,8 +24,8 @@ class MonogramConfig(BaseSettings):
     openai_api_key: str = ""
 
     # v0.6 — Web UI password (plaintext here; used only for client-side
-    # PBKDF2 derivation at publish time). Min 16 chars enforced by
-    # validate_webui_config() at startup.
+    # PBKDF2 derivation at publish time). Min 10 chars / 6 unique chars
+    # enforced by validate_webui_config() at startup.
     monogram_webui_password: str = ""
     github_pat: str
     github_repo: str = "example-org/mono"
