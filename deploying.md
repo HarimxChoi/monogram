@@ -45,48 +45,18 @@ any of this before. 30 minutes if you have.
 
 ## 2 · Telegram credentials
 
-### 2.1 API credentials (for Telethon listener)
+Follow **[docs/setup/telegram.md](docs/setup/telegram.md)** for the
+full walkthrough. At the end you'll have four env values:
 
-Go to <https://my.telegram.org/apps>, sign in with your phone number,
-and create a new application.
+- `TELEGRAM_API_ID` — integer, from <https://my.telegram.org/apps>
+- `TELEGRAM_API_HASH` — 32-char hex, same source
+- `TELEGRAM_BOT_TOKEN` — from `@BotFather`
+- `TELEGRAM_USER_ID` — your numeric ID from `@userinfobot`
 
-- **App title:** `monogram-personal` (or anything)
-- **Short name:** `monogram`
-- **Platform:** Other
-
-Record the two values you'll be shown:
-
-- `TELEGRAM_API_ID` (integer)
-- `TELEGRAM_API_HASH` (32-char hex)
-
-These live in `.env` on the deployment host.
-
-### 2.2 Bot token (for the approval bot)
-
-In Telegram, message `@BotFather`:
-
-```
-/newbot
-<bot name>     e.g. monogram-approve-bot
-<username>     e.g. yourname_monogram_bot
-```
-
-Record the token `@BotFather` returns — format `1234567890:AAF...`.
-This is `TELEGRAM_BOT_TOKEN`.
-
-### 2.3 Your user ID
-
-Message `@userinfobot` in Telegram. It returns your numeric user ID.
-This is `TELEGRAM_USER_ID`.
-
-> **Important:** Monogram uses this as an auth gate. Every bot command
-> (`/approve_<token>`, `/deny_<token>`, `/stats`, `/eval_*`) checks the
-> sender's ID against this value. No one else can command your bot.
-
-### 2.4 Bot → Saved Messages permission
-
-The bot needs to be able to reply to you. Message your bot once (say
-`hi`) — that establishes the DM channel.
+Put them in `.env` on the deployment host. `TELEGRAM_USER_ID` is the
+auth gate: every bot command (`/approve_<token>`, `/stats`,
+`/eval_*`, …) checks the sender against this value, so no one else
+can drive your bot.
 
 ---
 
