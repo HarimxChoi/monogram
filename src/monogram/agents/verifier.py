@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..llm import extract as llm_extract
+from ..models import get_model
 from .classifier import Classification
 from .extractor import ExtractedPayload
 
@@ -101,5 +102,6 @@ async def run(
         prompt="\n".join(context_parts),
         schema=VerifyResult,
         system=VERIFIER_SYSTEM_PROMPT,
+        model=get_model("low"),
         agent_tag="verifier",
     )

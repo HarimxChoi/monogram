@@ -21,11 +21,18 @@ v0.7 eval fields (new):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import ClassVar
 
 from . import github_store
+
+# life_categories must match [a-z0-9-]+ so derive_path("life", slug, area)
+# can round-trip through slugify without collisions. A non-ASCII or
+# special-char entry would slugify down to "untitled" and collide with
+# every other unroutable category.
+_VALID_LIFE_CATEGORY_RE = re.compile(r"^[a-z0-9-]+$")
 
 log = logging.getLogger("monogram.vault_config")
 
@@ -143,7 +150,17 @@ def load_vault_config() -> VaultConfig:
     if isinstance(meta.get("primary_language"), str) and meta["primary_language"]:
         cfg.primary_language = meta["primary_language"]
     if isinstance(meta.get("life_categories"), list):
-        cats = [c for c in meta["life_categories"] if isinstance(c, str) and c]
+        cats: list[str] = []
+        for c in meta["life_categories"]:
+            if not isinstance(c, str) or not c:
+                continue
+            if not _VALID_LIFE_CATEGORY_RE.match(c):
+                log.warning(
+                    "vault_config: life_categories entry %r must match "
+                    "[a-z0-9-]+ (kebab-case ASCII); skipping", c,
+                )
+                continue
+            cats.append(c)
         if cats:
             cfg.life_categories = cats
     if isinstance(meta.get("never_read_paths"), list):
