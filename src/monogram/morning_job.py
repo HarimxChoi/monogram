@@ -9,21 +9,24 @@ See docs/vault-layout.md.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
 
+log = logging.getLogger("monogram.morning_job")
+
+_PRO_CALL_TIMEOUT_SECONDS = 120
+
 from . import github_store
 from .calendar_url import build_calendar_url
-from .config import load_config
 from .llm import complete, extract as llm_extract
 from .models import get_model
 from .safe_read import safe_read
 from .vault_config import load_vault_config
-
-config = load_config()
 
 _STATUS_INACTIVE_DAYS = 10
 
@@ -495,16 +498,23 @@ async def generate_morning_brief(yesterday: str) -> str | None:
 
     prompt = _build_brief_prompt(ctx)
     try:
-        brief_data = await llm_extract(
-            prompt=prompt,
-            schema=MorningBriefData,
-            system="You are Monogram's morning brief generator. Produce structured output.",
-            model=get_model("high"),
+        # Timeout guard — without this a hung Pro call would block the
+        # whole morning job indefinitely (cron has no upstream timeout).
+        brief_data = await asyncio.wait_for(
+            llm_extract(
+                prompt=prompt,
+                schema=MorningBriefData,
+                system="You are Monogram's morning brief generator. Produce structured output.",
+                model=get_model("high"),
+            ),
+            timeout=_PRO_CALL_TIMEOUT_SECONDS,
         )
     except Exception as e:
-        # Pro can 429 or rate-limit; fall back to a minimal English brief
-        # rather than dropping the day's summary entirely.
-        print(f"morning brief: Pro call failed ({e!r}); falling back to minimal brief")
+        # Pro can 429, rate-limit, or time out; fall back to a minimal
+        # English brief rather than dropping the day's summary entirely.
+        log.warning(
+            "morning brief: Pro call failed (%r); falling back to minimal brief", e,
+        )
         brief_data = MorningBriefData(
             projects=[
                 ProjectBoardEntry(

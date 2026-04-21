@@ -138,8 +138,8 @@ def mirror() -> dict:
     base_tree = backup_parent.tree
 
     tree_elements = []
-    for path, content in files.items():
-        blob = backup.create_git_blob(content, "utf-8")
+    for path, (content_str, encoding) in files.items():
+        blob = backup.create_git_blob(content_str, encoding)
         tree_elements.append(
             _GITElement(path=path, mode="100644", type="blob", sha=blob.sha)
         )
@@ -247,12 +247,17 @@ def verify() -> dict:
 
 def _collect_repo_files(
     repo, max_files: int = 5000, content: bool = True
-) -> dict[str, str]:
-    """Walk the repo's default-branch tree and return {path: content}.
+) -> dict[str, tuple[str, str]]:
+    """Walk the repo's default-branch tree and return {path: (content, encoding)}.
 
-    If content=False, values are empty strings (just for counting/
-    existence checks, cheaper — uses recursive tree API which is 1 call).
+    Files that decode cleanly as UTF-8 are stored as ("<text>", "utf-8").
+    Files that don't (PNG, PDF, etc.) are stored as ("<base64>", "base64")
+    so `create_git_blob` can round-trip them without corruption.
+
+    If `content=False`, values are ("", "utf-8") — the map is used only for
+    counting / existence checks (verify), which never looks at the tuple.
     """
+    import base64
     from github.GithubException import GithubException
 
     try:
@@ -262,7 +267,7 @@ def _collect_repo_files(
         log.error("backup: tree fetch failed: %s", e)
         return {}
 
-    files: dict[str, str] = {}
+    files: dict[str, tuple[str, str]] = {}
     for element in tree.tree:
         if element.type != "blob":
             continue
@@ -272,12 +277,20 @@ def _collect_repo_files(
         if content:
             try:
                 raw = repo.get_contents(element.path)
-                files[element.path] = raw.decoded_content.decode(errors="replace")
+                raw_bytes = raw.decoded_content
+                try:
+                    files[element.path] = (raw_bytes.decode("utf-8"), "utf-8")
+                except UnicodeDecodeError:
+                    # Binary blob — preserve bytes through base64 rather than
+                    # lossy utf-8 "replace" decoding, which was silently
+                    # corrupting images and PDFs in earlier versions.
+                    b64 = base64.b64encode(raw_bytes).decode("ascii")
+                    files[element.path] = (b64, "base64")
             except Exception as e:
                 log.warning("backup: read failed for %s: %s", element.path, e)
                 continue
         else:
-            files[element.path] = ""
+            files[element.path] = ("", "utf-8")
 
     return files
 
