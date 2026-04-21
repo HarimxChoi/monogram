@@ -12,6 +12,7 @@ PAT requirements:
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from functools import cache
 
@@ -39,28 +40,97 @@ def _watch_repos() -> list[str]:
     return [r.strip() for r in raw.split(",") if r.strip()]
 
 
+# Canonical Conventional Commits prefixes plus a catch-all. Order
+# matters only for display — `_CONV_ORDER` drives render grouping.
+_CONV_ORDER = (
+    "feat", "fix", "perf", "refactor", "test",
+    "docs", "build", "ci", "chore", "style", "revert", "other",
+)
+_CONV_RE = re.compile(
+    r"^(?P<type>feat|fix|docs|chore|refactor|test|style|perf|build|ci|revert)"
+    r"(?:\([^)]*\))?(?P<bang>!)?:\s*(?P<subject>.+)$",
+    re.IGNORECASE,
+)
+
+
+def _parse_conventional(first_line: str) -> tuple[str, str, bool]:
+    """Return (type, subject, breaking). `type` is one of _CONV_ORDER.
+
+    `breaking` is true when the subject carries a `!` between the type
+    and the colon (e.g. `feat!: drop Python 3.9`). Body-level
+    `BREAKING CHANGE:` footers are handled separately in _render.
+    """
+    m = _CONV_RE.match((first_line or "").strip())
+    if not m:
+        return "other", (first_line or "").strip(), False
+    return m.group("type").lower(), m.group("subject").strip(), bool(m.group("bang"))
+
+
 def _fetch_commits_since(full_name: str, since: datetime) -> list[dict]:
-    """Return a list of {sha, time, author, message} for commits in `full_name`."""
+    """Return structured commit records for `full_name` since `since`.
+
+    Upgraded from first-line-only capture: also records the full body
+    (up to 2 KiB) and detects BREAKING CHANGE / breaking-bang markers.
+    Downstream callers stay backward-compatible via the `message` key,
+    which still carries just the truncated subject (preserves the
+    line-level format `_commits_for_project` relies on).
+    """
     g = Github(auth=Token(_cfg().github_pat))
     repo = g.get_repo(full_name)
     commits = repo.get_commits(since=since)
     out: list[dict] = []
     for c in commits:
         commit = c.commit
-        out.append(
-            {
-                "sha": c.sha[:7],
-                "time": commit.author.date.strftime("%Y-%m-%d %H:%M"),
-                "author": commit.author.name,
-                "message": commit.message.split("\n", 1)[0][:120],
-                "repo": full_name,
-            }
-        )
+        full_msg = commit.message or ""
+        first_line, _, rest = full_msg.partition("\n")
+        body = rest.strip()
+        conv_type, subject, breaking_bang = _parse_conventional(first_line)
+        breaking_footer = "BREAKING CHANGE" in body.upper()
+        out.append({
+            "sha": c.sha[:7],
+            "time": commit.author.date.strftime("%Y-%m-%d %H:%M"),
+            "author": commit.author.name,
+            "message": first_line[:120],        # compat: line-format consumers
+            "subject": subject[:160],           # conv-parsed display subject
+            "body": body[:2048],
+            "type": conv_type,
+            "breaking": breaking_bang or breaking_footer,
+            "repo": full_name,
+        })
     return out
 
 
+# Short, human labels for grouped rendering. The key order drives the
+# display order within a repo block.
+_CONV_LABEL = {
+    "feat":     "Features",
+    "fix":      "Fixes",
+    "perf":     "Performance",
+    "refactor": "Refactors",
+    "test":     "Tests",
+    "docs":     "Docs",
+    "build":    "Build",
+    "ci":       "CI",
+    "chore":    "Chores",
+    "style":    "Style",
+    "revert":   "Reverts",
+    "other":    "Other",
+}
+
+
 def _format_commits_block(commits: list[dict]) -> str:
-    """Render commits as markdown lines grouped by repo."""
+    """Render commits as markdown, grouped by repo and then by
+    conventional-commit type.
+
+    Per-commit line format is preserved (`` - `sha` time [author] msg ``)
+    so `morning_job._commits_for_project` continues to filter them by
+    substring match. Typed sub-groupings sit above the lines as
+    `**Label (N)**` headers — those are cosmetic and don't affect the
+    filter, which is line-oriented.
+
+    Commits flagged `breaking` are prefixed with `⚠ ` and repeated in a
+    trailing `**Breaking changes**` block for scan-ability.
+    """
     if not commits:
         return ""
     by_repo: dict[str, list[dict]] = {}
@@ -69,11 +139,41 @@ def _format_commits_block(commits: list[dict]) -> str:
 
     blocks: list[str] = []
     for repo, items in sorted(by_repo.items()):
-        lines = [f"### {repo}"]
+        lines = [f"### {repo} ({len(items)})"]
+
+        # Bucket commits by conventional type while preserving order.
+        # `.get()` lets callers pass thin dicts (from older test cases
+        # or direct API use) that predate the enriched capture format.
+        by_type: dict[str, list[dict]] = {}
         for c in items:
-            lines.append(
-                f"- `{c['sha']}` {c['time']} [{c['author']}] {c['message']}"
-            )
+            by_type.setdefault(c.get("type", "other"), []).append(c)
+
+        for conv_type in _CONV_ORDER:
+            bucket = by_type.get(conv_type)
+            if not bucket:
+                continue
+            lines.append("")
+            lines.append(f"**{_CONV_LABEL[conv_type]} ({len(bucket)})**")
+            for c in bucket:
+                flag = "⚠ " if c.get("breaking") else ""
+                lines.append(
+                    f"- `{c['sha']}` {c['time']} [{c['author']}] "
+                    f"{flag}{c['message']}"
+                )
+
+        # Call out breaking changes in a dedicated block. Duplicates
+        # the entries above — redundancy here is worth the scan time
+        # saved when triaging a morning with a breaking change buried
+        # among 40 other commits.
+        breakers = [c for c in items if c.get("breaking")]
+        if breakers:
+            lines.append("")
+            lines.append("**Breaking changes**")
+            for c in breakers:
+                lines.append(
+                    f"- `{c['sha']}` {c['time']} [{c['author']}] {c['message']}"
+                )
+
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 

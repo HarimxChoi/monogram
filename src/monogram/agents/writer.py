@@ -61,16 +61,109 @@ def _render_project(payload) -> str:
     return f"# project\n\n{_render_fallback(payload)}"
 
 
+def _parse_source_meta(url: str) -> tuple[str, str]:
+    """(source_type, domain) from a URL.
+
+    source_type coarsely buckets the reference so search + filtering
+    don't have to re-parse the URL every time. Kept narrow on purpose:
+    over-fitting adds noise to the vault's own taxonomy.
+    """
+    if not url:
+        return "text", ""
+    u = url.lower()
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.lower()
+    except Exception:
+        domain = ""
+    if "arxiv.org" in u:
+        return "paper", domain
+    if "github.com" in u:
+        return "code", domain
+    if "youtube.com" in u or "youtu.be" in u:
+        return "video", domain
+    if "stackoverflow.com" in u or "stackexchange.com" in u:
+        return "discussion", domain
+    if u.endswith(".pdf") or "/pdf/" in u:
+        return "pdf", domain
+    return "web", domain
+
+
+def _split_tldr(summary: str) -> tuple[str, str]:
+    """Split the extractor summary into (tldr, rest).
+
+    The TL;DR is the first sentence; the rest becomes an Overview
+    section so a 200-word summary doesn't collapse into one long line.
+    Degenerate inputs (empty, single word, no period) → whole string
+    goes to tldr, rest is empty.
+    """
+    s = (summary or "").strip()
+    if not s:
+        return "", ""
+    import re as _re
+    m = _re.search(r"(?<=[.?!])\s+", s)
+    if not m:
+        return s, ""
+    return s[: m.start() + 1].strip(), s[m.end():].strip()
+
+
 def _render_wiki(payload) -> str:
-    if isinstance(payload, ConceptDrop):
-        lines = [f"# {payload.title}", "", payload.summary]
-        if payload.source_url:
-            lines.append(f"\nSource: {payload.source_url}")
-        if payload.key_claims:
-            lines.append("\n## Key claims")
-            lines.extend(f"- {c}" for c in payload.key_claims)
-        return "\n".join(lines) + "\n"
-    return _render_fallback(payload)
+    """Produce a self-contained, scannable wiki entry.
+
+    Structure (order is load-bearing — morning_job + backlink writer
+    both assume `## Related` appears and stays at/near the end):
+
+      1. Title (H1)
+      2. TL;DR blockquote — the single-sentence gist, readable in 2s.
+      3. Key points — bullets from extractor.key_claims.
+      4. Overview — remaining summary prose, only if TL;DR didn't
+         consume the whole thing.
+      5. Source — URL + parsed domain/type + accessed date. Absent if
+         the drop had no source_url.
+      6. Related — empty header. `wiki_backlinks.append_backlink`
+         inserts `- [[peer]]` lines under this marker over time, so
+         starting the section empty gives it a stable insertion point.
+    """
+    if not isinstance(payload, ConceptDrop):
+        return _render_fallback(payload)
+
+    tldr, rest = _split_tldr(payload.summary)
+    lines: list[str] = [f"# {payload.title}", ""]
+
+    if tldr:
+        lines.extend([f"> {tldr}", ""])
+
+    if payload.key_claims:
+        lines.append("## Key points")
+        lines.append("")
+        lines.extend(f"- {c}" for c in payload.key_claims)
+        lines.append("")
+
+    if rest:
+        lines.append("## Overview")
+        lines.append("")
+        lines.append(rest)
+        lines.append("")
+
+    if payload.source_url:
+        src_type, domain = _parse_source_meta(payload.source_url)
+        lines.append("## Source")
+        lines.append("")
+        lines.append(f"- **URL**: <{payload.source_url}>")
+        if domain:
+            lines.append(f"- **Domain**: `{domain}`")
+        lines.append(f"- **Type**: {src_type}")
+        lines.append(f"- **Accessed**: {_today()}")
+        lines.append("")
+
+    # Related is intentionally empty at creation time. Backlink writes
+    # (see wiki_backlinks.append_backlink) find `## Related` and insert
+    # peer links under it. An empty anchor is cleaner than a stub
+    # sentence — no phantom content shows in Obsidian's reading view.
+    lines.append("## Related")
+    lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _render_life_entry(payload, slug: str) -> str:
@@ -244,6 +337,45 @@ def _build_metadata(confidence: str, tags: list[str]) -> dict[str, Any]:
     }
 
 
+def _build_wiki_metadata(
+    confidence: str,
+    tags: list[str],
+    payload,
+    slug: str,
+) -> dict[str, Any]:
+    """Wiki frontmatter: the base fields PLUS identity and source
+    descriptors so a file is self-documenting without reading the body.
+
+    Ordering is chosen so Obsidian's property view reads top-to-bottom
+    in a sensible order: identity → status → references → timestamps →
+    tags.
+    """
+    now = _now_iso()
+    md: dict[str, Any] = {"slug": slug}
+    if isinstance(payload, ConceptDrop) and payload.title:
+        md["title"] = payload.title
+
+    md.update({
+        "confidence": confidence,
+        "sources": 1,
+    })
+
+    if isinstance(payload, ConceptDrop) and payload.source_url:
+        src_type, domain = _parse_source_meta(payload.source_url)
+        md["source_url"] = payload.source_url
+        md["source_type"] = src_type
+        if domain:
+            md["source_domain"] = domain
+
+    md.update({
+        "created": now,
+        "last_accessed": now,
+        "last_confirmed": now,
+        "tags": list(tags),
+    })
+    return md
+
+
 async def run(
     extraction,
     verification: VerifyResult,
@@ -274,7 +406,12 @@ async def run(
             writes[target_path] = _life_file_header(classification.life_area) + new_entry
 
     elif target_kind == "wiki" and target_path:
-        metadata = _build_metadata(verification.target_confidence, classification.tags)
+        metadata = _build_wiki_metadata(
+            verification.target_confidence,
+            classification.tags,
+            extraction,
+            classification.slug,
+        )
         body = _render_wiki(extraction)
         writes[target_path] = github_store.serialize_with_metadata(metadata, body)
         # Maintain wiki/index.md
