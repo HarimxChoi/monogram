@@ -9,13 +9,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Telegram Saved Messages 에 뭐든 공유하면 — 링크, 메모, PDF, 사진 —
+커밋은 자동으로 칸반프로젝트가 되고, 공유한 링크는 위키가 되어 아침에
+리포트가 도착합니다. 세가지 뷰로 확인 — Obsidian, 대시보드, MCP
+
+Telegram 저장된 메세지에 뭐든 공유하면 (유튜브/인스타링크, 메모, PDF/word/hwp, 사진 등)
 Monogram 이 5-stage LLM pipeline 으로 분류하고 구조화된 마크다운으로
 private GitHub 레포에 한 커밋으로 원자적으로 기록합니다. 이 볼트는
 GCP 위에 자동 생성·암호화된 대시보드로 렌더링됩니다.
-
-커밋은 자동으로 칸반프로젝트가 되고, 공유한 링크는 위키가 되어 아침에
-리포트가 도착합니다. 같은 볼트를 세가지 뷰로 확인 — Obsidian, 대시보드, MCP
 
 ![Monogram 대시보드 — projects, wiki, life recent, commits](docs/images/dashboard.png)
 
