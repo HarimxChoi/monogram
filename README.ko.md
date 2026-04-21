@@ -1,3 +1,5 @@
+
+
 # Monogram
 
 **Language:** [English](README.md) · [한국어](README.ko.md)
@@ -25,7 +27,7 @@ GCP 위에서 자동 생성 · 암호화된 대시보드로 렌더링됩니다.
 GCP 프리티어에 자동으로 호스팅되며 월 $0. 디자인 참고:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
-> 🎬 **30-second walkthrough** — 캡처 → 마크다운 → 대시보드 → MCP 쿼리. *준비 중.*
+<video src="https://github.com/user-attachments/assets/fee5f42d-13d5-4897-b4e9-144947deb402" controls muted playsinline width="650"></video>
 
 <!--
   ┌─────────────────────────────────────────────────────────────┐
