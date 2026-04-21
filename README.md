@@ -91,14 +91,30 @@ writeup: [docs/architecture.md](docs/architecture.md).
 ## Quickstart
 
 Python 3.10+, a GitHub account, a Telegram account, one LLM API key
-(Gemini free tier is sufficient).
+(Gemini free tier is sufficient). If you want the encrypted web
+dashboard on GCS, have the `gcloud` CLI installed and `gcloud auth
+login` done — the wizard takes it from there.
 
 ```bash
 pip install mono-gram
-monogram init            # interactive wizard
+monogram init            # interactive wizard — env, config, GCP bucket, all inline
 monogram auth            # one-time Telegram auth
 monogram run             # listener + bot (leave running)
 ```
+
+> ⚠️ **PyPI approval pending.** `pip install mono-gram` won't resolve
+> yet — install from source per
+> [docs/setup/install-from-source.md](docs/setup/install-from-source.md):
+>
+> ```bash
+> git clone https://github.com/HarimxChoi/monogram.git
+> cd monogram
+> python -m venv .venv && source .venv/bin/activate
+> pip install -e .
+> ```
+>
+> Everything after — `monogram init`, `monogram run`, all subcommands —
+> works identically.
 
 > The pip package is `mono-gram`; the CLI command remains `monogram`.
 > The Python import path is also `monogram` — `from monogram import ...`.
@@ -119,13 +135,32 @@ One vault, three ways to deploy the dashboard:
 
 | Mode | Where it runs | When to pick it |
 |---|---|---|
-| **GCS** | Static bucket, client-side decrypt | Default. Bookmarkable URL, $0 at personal scale. |
+| **GCS** | Static bucket, client-side decrypt | Default. Bookmarkable URL, $0 at personal scale. Bucket + service account + IAM provisioned by `monogram init` via `gcloud`. |
 | **Self-host** | Local Flask or any static host | Air-gapped / private network. |
 | **MCP-only** | No web face — access via Claude Desktop / Cursor | Terminal-centric workflow. |
 
 Password-protected. Content is encrypted at rest; the host only ever
 holds ciphertext. Regenerated on morning / weekly runs. Setup:
-[docs/setup/gcp-webui.md](docs/setup/gcp-webui.md) (~5 min).
+[docs/webui.md](docs/webui.md) (~5 min).
+
+## Runs on $0
+
+Designed to run end-to-end on free tiers:
+
+- GCP `e2-micro` always-free VM for the listener + cron jobs.
+- GCS free tier for the encrypted dashboard — bucket, service account,
+  and IAM policy are provisioned automatically by `monogram init` via
+  the `gcloud` CLI.
+- Gemini free tier for the LLM pipeline.
+
+**No GPU required.** Use the free LLM API tier, or plug in a local
+Ollama model if you'd rather keep inference on-device — Monogram has
+no hardware floor.
+
+**No PC required after setup.** First-time configuration runs on your
+desktop (install, `monogram init`, one-time Telegram auth), then the
+VM takes over. Drops flow phone → Telegram → vault → dashboard with
+nothing local running.
 
 ## What you get
 
@@ -158,11 +193,13 @@ CVE-2024-12425/12426 and CVE-2025-1080; see [SECURITY.md](SECURITY.md).
 
 ## Credentials
 
-Sensitive info shared to Saved Messages — passwords, API keys,
-personal ID numbers — is isolated to `life/credentials/`, a path the
-LLM is code-level blocked from reading. It lives only in your
-private GitHub repo, and you retrieve it by syncing that repo to
-Obsidian on a device you trust.
+Storing credentials in chat isn't a recommended way to manage secrets.
+Still, if you end up dropping a password, an API key, or a personal ID
+into Saved Messages, Monogram handles it as safely as it can. The
+classifier tags it as a credential and isolates it under
+`life/credentials/` — a path the LLM is code-level blocked from
+reading. The content lives only in your private GitHub repo, and you
+retrieve it by syncing that repo to Obsidian on a device you trust.
 
 ## What this is *not*
 
@@ -184,7 +221,8 @@ Roadmap: see CHANGELOG.md for shipped features.
 - [deploying.md](deploying.md) — GCP + GitHub + LLM provider setup, end-to-end
 - [docs/architecture.md](docs/architecture.md) — full topology
 - [docs/agents.md](docs/agents.md) — per-stage schemas and prompts
-- [docs/setup/gcp-webui.md](docs/setup/gcp-webui.md) — dashboard deployment
+- [docs/setup/telegram.md](docs/setup/telegram.md) — Telegram API + bot setup
+- [docs/webui.md](docs/webui.md) — dashboard deployment
 - [docs/setup/llm-providers.md](docs/setup/llm-providers.md) — provider preset configs
 - [docs/setup/mcp-clients.md](docs/setup/mcp-clients.md) — Claude Desktop / Cursor integration
 - [docs/eval.md](docs/eval.md) — eval harness + kill-switch design
