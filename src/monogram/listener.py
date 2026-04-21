@@ -24,6 +24,18 @@ def _cfg():
     """Lazy app-config accessor — defers .env loading until first use."""
     return load_config()
 
+def _telethon_document_filename(document) -> str | None:
+    """Pull the original filename off a Telethon Document, if the sender
+    kept it. Telethon surfaces it as a DocumentAttributeFilename entry
+    on `.attributes`; other attribute types (audio, video, sticker) are
+    skipped."""
+    for attr in getattr(document, "attributes", []) or []:
+        name = getattr(attr, "file_name", None)
+        if name:
+            return name
+    return None
+
+
 VISION_OCR_PROMPT = (
     "Transcribe and describe this image. If it contains text "
     "(handwriting, screenshot, document, slide), transcribe verbatim. "
@@ -85,9 +97,13 @@ async def run_listener(send_reply_fn):
         try:
             caption = event.raw_text or ""
             text = caption
+            is_image = bool(
+                event.photo
+                or (event.document and event.document.mime_type
+                    and event.document.mime_type.startswith("image/"))
+            )
 
-            if event.photo or (event.document and event.document.mime_type and
-                               event.document.mime_type.startswith("image/")):
+            if is_image:
                 from .models import get_vision_model
 
                 vision_model = get_vision_model()
@@ -119,12 +135,44 @@ async def run_listener(send_reply_fn):
                             await send_reply_fn(cfg.telegram_user_id, f"vision error: {e}")
                             return
 
+            elif event.document:
+                # Non-image document: PDF / HWP / Office / text / unsupported.
+                # Before this branch existed the listener silently dropped
+                # these attachments — user saw nothing. Now every filetype
+                # gets either an extraction or an explicit rejection reply.
+                mime = event.document.mime_type or ""
+                fname = _telethon_document_filename(event.document) or "attachment"
+                try:
+                    file_bytes = await event.download_media(file=bytes)
+                except Exception as e:
+                    await send_reply_fn(
+                        cfg.telegram_user_id, f"file download failed ({fname}): {e}"
+                    )
+                    return
+
+                from .ingestion.attachment import build_drop_text, extract_attachment
+
+                result = await extract_attachment(file_bytes, mime, fname)
+                if result.success:
+                    text = build_drop_text(caption, result)
+                else:
+                    # Surface the failure; fall back to caption-only if the
+                    # user typed something alongside the file.
+                    warn = result.warning or "unknown"
+                    await send_reply_fn(
+                        cfg.telegram_user_id,
+                        f"extract failed ({fname}): {warn}"
+                        + (" — processing caption only" if caption.strip() else ""),
+                    )
+                    if not caption.strip():
+                        return
+                    text = caption
+
             if not text:
-                # OCR returned empty AND no caption — explicit reply so the
-                # drop doesn't disappear silently.
+                # No caption, no attachment text — nothing for the pipeline.
                 await send_reply_fn(
                     cfg.telegram_user_id,
-                    "image OCR returned empty — skipped",
+                    "empty drop — no text and no recognizable attachment",
                 )
                 return
 
