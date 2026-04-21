@@ -77,6 +77,95 @@ _DEFAULT_LIFE_CATS = [
 ]
 
 
+def _provision_gcp_if_available(bucket: str) -> str:
+    """Run the `gcloud` provisioning flow inline, if the user is ready.
+
+    Returns the absolute path of the generated SA key on success, or
+    an empty string if the user skipped or a preflight failed. The
+    wizard writes the returned path into `GOOGLE_APPLICATION_CREDENTIALS`
+    in `.env`.
+
+    Non-fatal on failure: setup can be re-attempted via the standalone
+    `monogram provision-gcp` path, or the user can run the commands
+    manually per docs/webui.md.
+    """
+    from .cli_init_validate import (
+        gcloud_active_account,
+        gcloud_available,
+        gcloud_project_billing_ok,
+    )
+
+    click.echo("\n  GCP auto-provision (bucket + service account + IAM):")
+
+    ok, msg = gcloud_available()
+    if not ok:
+        click.echo(f"    ✗ {msg}")
+        click.echo(
+            "    skipping — install gcloud and re-run `monogram init`, "
+            "or follow docs/webui.md to set up manually."
+        )
+        return ""
+    click.echo(f"    ✓ gcloud — {msg}")
+
+    ok, msg = gcloud_active_account()
+    if not ok:
+        click.echo(f"    ✗ {msg}")
+        click.echo(
+            "    skipping — run `gcloud auth login` and re-run init, "
+            "or provision manually per docs/webui.md."
+        )
+        return ""
+    click.echo(f"    ✓ active account — {msg}")
+
+    project = click.prompt("    GCP project id").strip()
+    if not project:
+        click.echo("    skipped (no project id)")
+        return ""
+
+    ok, msg = gcloud_project_billing_ok(project)
+    if not ok:
+        click.echo(f"    ✗ {msg}")
+        if not click.confirm(
+            "    Provision anyway? (bucket create will likely fail)",
+            default=False,
+        ):
+            return ""
+    else:
+        click.echo(f"    ✓ {msg}")
+
+    region = click.prompt("    Region", default="us-central1").strip()
+
+    if not click.confirm(
+        f"\n    Create gs://{bucket} + service account + IAM now?",
+        default=True,
+    ):
+        return ""
+
+    from pathlib import Path as _Path
+
+    from .cli_provision_gcp import ProvisionError, provision_gcs_bucket
+
+    try:
+        summary = provision_gcs_bucket(
+            project=project,
+            bucket=bucket,
+            region=region,
+            key_path=_Path.cwd() / ".gcp" / "monogram-webui-key.json",
+        )
+    except ProvisionError as e:
+        click.echo(f"    ✗ provisioning failed: {e}")
+        click.echo(
+            "    leaving webui_mode=gcs in config; retry later with "
+            "`monogram init` or run the gcloud commands yourself."
+        )
+        return ""
+
+    for step, status in summary["steps"]:
+        click.echo(f"    ✓ {step}: {status}")
+    click.echo(f"    SA key: {summary['key_path']}")
+    return summary["key_path"]
+
+
 @main.command("init")
 @click.option(
     "--non-interactive",
@@ -257,7 +346,7 @@ def init(non_interactive: bool):
     # ── Step 6: Web UI (v0.6) ──
     click.echo("\nStep 6/6: Web UI delivery\n")
     click.echo("Choose a path:")
-    click.echo("  [1] GCP Cloud Storage (stable URL, $0/month — see docs/setup/gcp-webui.md)")
+    click.echo("  [1] GCP Cloud Storage (stable URL, $0/month — auto-provisioned via gcloud)")
     click.echo("  [2] Self-hosted (cloudflared quick tunnel, no cloud dep)")
     click.echo("  [3] None — use an MCP client (Claude Desktop / Cursor) instead")
     webui_choice = click.prompt(
@@ -266,17 +355,17 @@ def init(non_interactive: bool):
     webui_config: dict = {}
     if webui_choice == "1":
         webui_config["webui_mode"] = "gcs"
+        bucket_name = click.prompt(
+            "  Bucket name",
+            default=f"{username.lower()}-monogram-webui",
+        ).strip()
         webui_config["webui_gcs"] = {
-            "bucket": click.prompt(
-                "  Bucket name",
-                default=f"{username.lower()}-monogram-webui",
-            ).strip(),
+            "bucket": bucket_name,
             "path_slug": "main",
         }
-        click.echo(
-            "  Note: also set GOOGLE_APPLICATION_CREDENTIALS in .env pointing "
-            "at your service account JSON. See docs/setup/gcp-webui.md."
-        )
+        sa_key_path = _provision_gcp_if_available(bucket_name)
+        if sa_key_path:
+            env_additions["GOOGLE_APPLICATION_CREDENTIALS"] = sa_key_path
     elif webui_choice == "2":
         webui_config["webui_mode"] = "self-host"
         port = click.prompt("  Local port", default="8765")
@@ -330,6 +419,7 @@ def init(non_interactive: bool):
         f"ANTHROPIC_API_KEY={env_additions['ANTHROPIC_API_KEY']}\n"
         f"OPENAI_API_KEY={env_additions['OPENAI_API_KEY']}\n"
         f"MONOGRAM_WEBUI_PASSWORD={env_additions.get('MONOGRAM_WEBUI_PASSWORD', '')}\n"
+        f"GOOGLE_APPLICATION_CREDENTIALS={env_additions.get('GOOGLE_APPLICATION_CREDENTIALS', '')}\n"
         "MONOGRAM_WATCH_REPOS=\n"
     )
     env_path.write_text(env_body)
@@ -594,7 +684,11 @@ def _log_eval_state_at_startup() -> None:
 
 
 @main.command("digest")
-@click.option("--hours", default=24, help="Look-back window in hours.")
+@click.option(
+    "--hours",
+    default=6,
+    help="Look-back window in hours (default: 6, matches the 6-hourly cron).",
+)
 def digest(hours: int):
     """Fetch recent commits from MONOGRAM_WATCH_REPOS into daily/*/commits.md."""
     import asyncio
