@@ -10,7 +10,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 커밋은 자동으로 칸반프로젝트가 되고, 공유한 링크는 위키가 되어
-아침엔 캘린더 이벤트까지 포함된 리포트가 도착합니다. 세가지 뷰로
+아침에 캘린더 이벤트까지 포함한 데일리 리포트가 도착합니다. 세가지 뷰로
 확인 — Obsidian, 대시보드, MCP
 
 Telegram 저장된 메세지에 공유한 것 (유튜브/인스타링크, 메모,
