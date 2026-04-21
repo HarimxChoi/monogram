@@ -20,6 +20,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,35 @@ from .safe_read import safe_read
 _SEMA = asyncio.Semaphore(10)
 _TEMPLATE_DIR = Path(__file__).parent / "webui" / "templates"
 _MONOGRAM_VERSION = "v0.6"
+
+
+@cache
+def _cfg():
+    """Lazy app-config accessor — defers .env loading until first use."""
+    from .config import load_config
+    return load_config()
+
+
+# ── daily file cache (populated per render, invalidated between renders) ──
+
+
+DailyCache = dict[str, tuple[str, str]]  # date -> (drops.md, commits.md)
+
+
+def _build_daily_cache(days: int = 30) -> DailyCache:
+    """Read `daily/<date>/drops.md` + `daily/<date>/commits.md` for the last
+    N days once per render. Project-card computations reuse this map so
+    `_count_mentions_per_day` and the commit-count loop no longer hit
+    github_store N × M times per dashboard (one read per date, not per
+    project × date)."""
+    now = _now()
+    cache_map: DailyCache = {}
+    for i in range(days):
+        d = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        drops = safe_read(f"daily/{d}/drops.md") or ""
+        commits = safe_read(f"daily/{d}/commits.md") or ""
+        cache_map[d] = (drops, commits)
+    return cache_map
 
 
 # ── Jinja env ──
@@ -172,16 +202,19 @@ def _make_sparkline(points: list[int], width: int = 70, height: int = 14) -> str
     )
 
 
-def _count_mentions_per_day(slug: str, days: int = 30) -> list[int]:
-    """Count occurrences of `slug` across daily/<D>/drops.md + commits.md."""
+def _count_mentions_per_day(
+    slug: str, daily_cache: DailyCache, days: int = 30,
+) -> list[int]:
+    """Count occurrences of `slug` across daily drops+commits, reading from
+    the pre-built cache rather than re-hitting GitHub per project."""
     counts: list[int] = []
+    slug_lc = slug.lower()
     now = _now()
     for i in range(days - 1, -1, -1):
         d = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-        drops = safe_read(f"daily/{d}/drops.md") or ""
-        commits = safe_read(f"daily/{d}/commits.md") or ""
+        drops, commits = daily_cache.get(d, ("", ""))
         hay = (drops + "\n" + commits).lower()
-        counts.append(hay.count(slug.lower()))
+        counts.append(hay.count(slug_lc))
     return counts
 
 
@@ -199,26 +232,26 @@ def _list_dir(folder: str) -> list[str]:
     ]
 
 
-def _project_card(path: str, body_limit: int = 160) -> dict:
+def _project_card(
+    path: str, daily_cache: DailyCache, body_limit: int = 160,
+) -> dict:
     content = safe_read(path) or ""
     fm, body = github_store.parse_metadata(content)
     fm = fm or {}
     slug = Path(path).stem
+    slug_lc = slug.lower()
     deadline_label, deadline_class = _deadline_label(fm)
     tags = fm.get("tags") or []
     tag_summary = ", ".join(tags[:3]) if tags else ""
     note = _extract_note(body or "", body_limit)
     blocker = _extract_blocker(fm, body or "")
 
-    points = _count_mentions_per_day(slug, days=30)
+    points = _count_mentions_per_day(slug, daily_cache, days=30)
     drops_count = sum(points)
-    # commits count: rough estimate from commits.md only
-    commit_count = 0
-    now = _now()
-    for i in range(30):
-        d = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-        commits = safe_read(f"daily/{d}/commits.md") or ""
-        commit_count += commits.lower().count(slug.lower())
+    commit_count = sum(
+        commits.lower().count(slug_lc)
+        for _drops, commits in daily_cache.values()
+    )
 
     metric_html = (
         f"<strong>{drops_count}</strong> drops · <strong>{commit_count}</strong> commits · 30d"
@@ -236,18 +269,18 @@ def _project_card(path: str, body_limit: int = 160) -> dict:
     }
 
 
-def _group_projects() -> dict:
+def _group_projects(daily_cache: DailyCache) -> dict:
     """Return {active:[cards], inactive:[cards], done:[cards], total:int}."""
     active, inactive = [], []
     for p in _list_dir("projects"):
         if p.endswith("/archive") or "/archive/" in p:
             continue
-        card = _project_card(p)
+        card = _project_card(p, daily_cache)
         (active if card["status"] == "active" else inactive).append(card)
 
     done = []
     for p in _list_dir("projects/archive")[:5]:
-        card = _project_card(p, body_limit=80)
+        card = _project_card(p, daily_cache, body_limit=80)
         card["deadline_label"] = "archived"
         card["deadline_class"] = "ok"
         done.append(card)
@@ -382,10 +415,13 @@ _COMMIT_LINE_RE = re.compile(
 )
 
 
-def _today_data() -> dict:
+def _today_data(daily_cache: DailyCache | None = None) -> dict:
     today = _today_iso()
-    drops_content = safe_read(f"daily/{today}/drops.md") or ""
-    commits_content = safe_read(f"daily/{today}/commits.md") or ""
+    if daily_cache and today in daily_cache:
+        drops_content, commits_content = daily_cache[today]
+    else:
+        drops_content = safe_read(f"daily/{today}/drops.md") or ""
+        commits_content = safe_read(f"daily/{today}/commits.md") or ""
 
     drops = []
     for m in _DROP_LINE_RE.finditer(drops_content):
@@ -416,8 +452,7 @@ def _today_data() -> dict:
 
 
 def _meta() -> dict:
-    from .config import load_config
-    cfg = load_config()
+    cfg = _cfg()
     now = _now()
     try:
         repo = github_store._repo()
@@ -457,12 +492,14 @@ async def render_bundle() -> bytes:
     """
     loop = asyncio.get_event_loop()
 
-    # Parallelize the four large blocks — each contains multiple github_store calls
-    # already capped by the semaphore.
-    board_future = loop.run_in_executor(None, _group_projects)
+    # Build the daily file cache first — everything downstream reads from
+    # this map instead of re-hitting GitHub per project × day.
+    daily_cache = await loop.run_in_executor(None, _build_daily_cache, 30)
+
+    board_future = loop.run_in_executor(None, _group_projects, daily_cache)
     life_future = loop.run_in_executor(None, _life_items)
     wiki_future = loop.run_in_executor(None, _wiki_data)
-    today_future = loop.run_in_executor(None, _today_data)
+    today_future = loop.run_in_executor(None, _today_data, daily_cache)
     meta_future = loop.run_in_executor(None, _meta)
 
     board, life, wiki, today, meta = await asyncio.gather(
