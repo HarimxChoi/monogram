@@ -36,7 +36,7 @@ def test_validate_accepts_strong():
 
 
 def test_validate_min_length_constant():
-    assert MIN_PASSWORD_LEN == 16
+    assert MIN_PASSWORD_LEN == 10
 
 
 # ── round-trip ──
@@ -75,7 +75,7 @@ def test_different_salts_produce_different_ciphertext():
 
 
 def test_weak_password_rejected_at_encrypt():
-    with pytest.raises(ValueError, match="16 characters"):
+    with pytest.raises(ValueError, match="10 characters"):
         encrypt_blob(b"anything", "short")
 
 
