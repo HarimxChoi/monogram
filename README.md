@@ -12,11 +12,11 @@
 Anything you share to Telegram Saved Messages and anything you commit
 on GitHub flows through a 5-stage LLM pipeline and lands as structured
 markdown in a private GitHub repo — one atomic commit per drop. The
-vault then renders into an auto-generated, encrypted dashboard on GCP.
+markdown then renders into an auto-generated, encrypted dashboard on GCP.
 
 Your commits auto-organize into a Kanban. Your links become a wiki.
 Your mornings arrive as a briefing, calendar events included. Same
-vault, three views — Obsidian, the dashboard, and MCP.
+markdown, three views — Obsidian, the dashboard, and MCP.
 
 ![Monogram dashboard — projects, wiki, life recent, commits](docs/images/dashboard.png)
 
@@ -24,7 +24,7 @@ Dark, information-dense, password-protected, client-side decrypted.
 Hosted automatically on GCP free tier at $0 / month. Design reference:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
-> 🎬 **30-second walkthrough** — capture → vault → dashboard → MCP query. *Coming soon.*
+> 🎬 **30-second walkthrough** — capture → markdown → dashboard → MCP query. *Coming soon.*
 
 <!--
   ┌─────────────────────────────────────────────────────────────┐
@@ -68,8 +68,8 @@ Hosted automatically on GCP free tier at $0 / month. Design reference:
 └────────────────────────┬─────────────────────────────────────┘
                          ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  VAULT  (git)                  BACKUP  (separate PAT)        │
-│    <user>/mono          ⟶      <user>/mono-backup            │
+│  MARKDOWN  (git)                  BACKUP  (separate PAT)     │
+│    <user>/mono          ⟶      <user>/mono-backup           │
 └────────────────────────┬─────────────────────────────────────┘
                          │
        ┌─────────┬───────┴───────┬────────────┐
@@ -84,7 +84,7 @@ Hosted automatically on GCP free tier at $0 / month. Design reference:
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Six horizontal planes. Inputs → pipeline → vault/backup → consumer
+Six horizontal planes. Inputs → pipeline → markdown/backup → consumer
 surfaces. Observability and eval sit below, cross-cutting. Full
 writeup: [docs/architecture.md](docs/architecture.md).
 
@@ -120,7 +120,7 @@ monogram run             # listener + bot (leave running)
 > The Python import path is also `monogram` — `from monogram import ...`.
 
 Drop something into Saved Messages. Within seconds a commit appears on
-your vault repo. End-to-end walkthrough (GCP free tier → PyPI): **[deploying.md](deploying.md)**.
+your markdown repo. End-to-end walkthrough (GCP free tier → PyPI): **[deploying.md](deploying.md)**.
 
 Optional extras:
 
@@ -131,7 +131,7 @@ pip install 'mono-gram[eval]'            # cassette-replay eval harness
 
 ## Web UI
 
-One vault, three ways to deploy the dashboard:
+One markdown, three ways to deploy the dashboard:
 
 | Mode | Where it runs | When to pick it |
 |---|---|---|
@@ -159,7 +159,7 @@ no hardware floor.
 
 **No PC required after setup.** First-time configuration runs on your
 desktop (install, `monogram init`, one-time Telegram auth), then the
-VM takes over. Drops flow phone → Telegram → vault → dashboard with
+VM takes over. Drops flow phone → Telegram → markdown → dashboard with
 nothing local running.
 
 ## What you get
@@ -205,8 +205,8 @@ retrieve it by syncing that repo to Obsidian on a device you trust.
 
 - Not a chat bot — no conversational turn-taking.
 - Not a search engine — `monogram search` is grep + scope filters. Semantic search in v1.1.
-- Not multi-user — one Telegram account, one vault, one person.
-- Not a replacement for Obsidian/Notion/Logseq — it's the ingest path. Your vault renders natively in any markdown editor.
+- Not multi-user — one Telegram account, one markdown, one person.
+- Not a replacement for Obsidian/Notion/Logseq — it's the ingest path. Your markdown renders natively in any markdown editor.
 
 ## Roadmap
 
