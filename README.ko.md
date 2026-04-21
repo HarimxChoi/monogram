@@ -104,6 +104,20 @@ monogram auth            # one-time Telegram auth
 monogram run             # listener + bot (leave running)
 ```
 
+> ⚠️ **PyPI 승인 대기 중.** 아직 `pip install mono-gram` 으로는
+> 받아지지 않습니다 —
+> [docs/setup/install-from-source.md](docs/setup/install-from-source.md)
+> 를 따라 소스에서 설치하세요:
+>
+> ```bash
+> git clone https://github.com/HarimxChoi/monogram.git
+> cd monogram
+> python -m venv .venv && source .venv/bin/activate
+> pip install -e .
+> ```
+>
+> 이후 `monogram init`, `monogram run` 등 나머지 명령은 동일합니다.
+
 > pip 패키지 이름은 `mono-gram`, CLI 명령어는 `monogram` 그대로이며
 > Python import 경로도 `monogram` 입니다 — `from monogram import ...`.
 

@@ -102,6 +102,20 @@ monogram auth            # one-time Telegram auth
 monogram run             # listener + bot (leave running)
 ```
 
+> ⚠️ **PyPI approval pending.** `pip install mono-gram` won't resolve
+> yet — install from source per
+> [docs/setup/install-from-source.md](docs/setup/install-from-source.md):
+>
+> ```bash
+> git clone https://github.com/HarimxChoi/monogram.git
+> cd monogram
+> python -m venv .venv && source .venv/bin/activate
+> pip install -e .
+> ```
+>
+> Everything after — `monogram init`, `monogram run`, all subcommands —
+> works identically.
+
 > The pip package is `mono-gram`; the CLI command remains `monogram`.
 > The Python import path is also `monogram` — `from monogram import ...`.
 

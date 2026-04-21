@@ -6,11 +6,16 @@ work** — this doc exists for background and recovery.
 ## TL;DR
 
 ```bash
-pip install mono-gram
-monogram init          # interactive wizard (≈10 min)
-monogram auth          # one-time Telegram code
-monogram run           # listener + bot (leave running)
+pip install mono-gram     # once PyPI approves; see install-from-source.md today
+monogram init             # interactive wizard (≈10 min)
+monogram auth             # one-time Telegram code
+monogram run              # listener + bot (leave running)
 ```
+
+> PyPI approval is still pending — until it lands, use
+> [install-from-source.md](install-from-source.md) for the install
+> step; everything after (`monogram init`, wizard flow, VM deploy) is
+> identical.
 
 The wizard collects every credential inline, writes `.env` +
 `mono/config.md`, and — if you pick the GCS web UI — provisions the
