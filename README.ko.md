@@ -93,11 +93,13 @@ GCP 프리티어에 자동으로 호스팅되며 월 $0. 디자인 참고:
 ## Quickstart
 
 Python 3.10+, GitHub 계정, Telegram 계정, LLM API 키 하나 (Gemini
-프리티어로 충분함).
+프리티어로 충분함). 암호화 웹 대시보드를 GCS 에 올리려면 `gcloud`
+CLI 를 설치하고 `gcloud auth login` 까지만 해두면 됩니다 — 나머지는
+위저드가 처리합니다.
 
 ```bash
 pip install mono-gram
-monogram init            # interactive wizard
+monogram init            # interactive wizard — env · config · GCP 버킷까지 한번에
 monogram auth            # one-time Telegram auth
 monogram run             # listener + bot (leave running)
 ```
@@ -122,13 +124,30 @@ pip install 'mono-gram[eval]'            # cassette-replay eval 하네스
 
 | 모드 | 실행 위치 | 언제 고르나 |
 |---|---|---|
-| **GCS** | 정적 버킷 + 클라이언트 사이드 복호화 | 기본값. 북마크 가능한 URL, 개인 규모에서 $0. |
+| **GCS** | 정적 버킷 + 클라이언트 사이드 복호화 | 기본값. 북마크 가능한 URL, 개인 규모에서 $0. 버킷 · 서비스 계정 · IAM 은 `monogram init` 이 `gcloud` 로 자동 프로비저닝. |
 | **Self-host** | 로컬 Flask 또는 임의 정적 호스트 | 에어갭 / 사설 네트워크. |
 | **MCP-only** | 웹 UI 없이 Claude Desktop / Cursor 로만 접근 | 터미널 중심 워크플로우. |
 
 비밀번호로 보호되고 저장 시 암호화되며, 호스트에는 ciphertext 만
 업로드됩니다. morning / weekly 실행마다 자동으로 재생성됩니다. 세팅:
-[docs/setup/gcp-webui.md](docs/setup/gcp-webui.md) (~5분).
+[docs/webui.md](docs/webui.md) (~5분).
+
+## 월 $0 로 운영
+
+모든 단계가 무료 티어 안에서 동작하도록 설계했습니다:
+
+- GCP `e2-micro` always-free VM 에서 리스너 + cron 상주
+- GCS 프리티어로 암호화 대시보드 호스팅 — 버킷 · 서비스 계정 ·
+  IAM 은 `monogram init` 이 `gcloud` CLI 로 자동 설정
+- Gemini 프리티어로 LLM 파이프라인 전체 커버
+
+**GPU 필요 없음.** 무료 LLM API 티어를 써도 되고, 로컬에서
+Ollama 같은 모델을 연결해도 됩니다. 하드웨어 요구 자체가 없습니다.
+
+**세팅 이후엔 PC 필요 없음.** 최초 설치 + `monogram init` +
+Telegram 1회 인증까지만 데스크톱에서 진행하면, 그 뒤로는 VM 이
+전부 처리합니다. 드롭은 휴대폰 → Telegram → 볼트 → 대시보드로
+자동화 됩니다.
 
 ## What you get
 
@@ -161,12 +180,13 @@ HWP 는 CVE-2024-12425/12426, CVE-2025-1080 에 대해 하드닝되어
 
 ## Credentials
 
-비밀번호, API 키, 개인통관번호 같은 민감 정보를 Saved Messages 에
-공유해도 안전합니다. 분류기가 credential 로 인식하면
-`life/credentials/` 로 격리되고, 이 경로는 코드 레벨에서 LLM 이
-절대 읽지 못하도록 차단됩니다. 내용은 private GitHub 레포에만
-남고, 본인은 Obsidian 으로 신뢰하는 기기에 동기화해서 꺼내 볼
-수 있습니다.
+Saved Messages 에 비밀번호나 API 키, 개인통관번호 같은 credential
+을 올려두는 건 권장하는 저장 방식은 아닙니다. 다만 혹시 이렇게라도
+보관해야 할 상황이 생겼을 때를 대비해 최대한 안전하게 처리됩니다.
+분류기가 credential 로 인식하면 `life/credentials/` 로 격리되고,
+이 경로는 코드 레벨에서 LLM 이 절대 읽지 못하도록 차단됩니다. 내용은
+private GitHub 레포에만 남고, 본인은 Obsidian 으로 신뢰하는 기기에
+동기화해서 꺼내 볼 수 있습니다.
 
 ## What this is *not*
 
@@ -188,7 +208,8 @@ HWP 는 CVE-2024-12425/12426, CVE-2025-1080 에 대해 하드닝되어
 - [deploying.md](deploying.md) — GCP + GitHub + LLM provider 세팅, end-to-end
 - [docs/architecture.md](docs/architecture.md) — 전체 토폴로지
 - [docs/agents.md](docs/agents.md) — 스테이지별 스키마와 프롬프트
-- [docs/setup/gcp-webui.md](docs/setup/gcp-webui.md) — 대시보드 배포
+- [docs/setup/telegram.md](docs/setup/telegram.md) — Telegram API + 봇 세팅
+- [docs/webui.md](docs/webui.md) — 대시보드 배포
 - [docs/setup/llm-providers.md](docs/setup/llm-providers.md) — provider 프리셋
 - [docs/setup/mcp-clients.md](docs/setup/mcp-clients.md) — Claude Desktop / Cursor 연동
 - [docs/eval.md](docs/eval.md) — eval harness + kill-switch 설계
