@@ -12,7 +12,7 @@ the bucket only ever holds ciphertext.
 
 - GCP account with **billing enabled** — required only so the Storage API will accept requests. Actual usage is $0.
 - `gcloud` CLI ([cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install))
-- A password ≥ 16 chars (use your password manager's generator)
+- A password ≥ 10 chars with ≥ 6 unique characters (use your password manager's generator)
 
 ## 1. Create project + bucket
 
