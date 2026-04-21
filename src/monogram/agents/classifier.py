@@ -21,6 +21,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..llm import complete
+from ..models import get_model
 from ..taxonomy import (
     CONFIDENCE_LEVELS,
     DROP_TYPES,
@@ -220,6 +221,7 @@ async def run(payload: str, plan: PipelinePlan) -> Classification:
         prompt=prompt,
         system=system,
         response_format=Classification,
+        model=get_model("low"),
         agent_tag="classifier",
     )
     data = json.loads(raw)

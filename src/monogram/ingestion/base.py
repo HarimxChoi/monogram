@@ -298,9 +298,12 @@ def safe_stream_bytes(
                 for chunk in resp.iter_bytes():
                     total += len(chunk)
                     if total > max_bytes:
-                        break
+                        # Don't return truncated bytes — downstream parsers
+                        # crash on partial PDFs/docx and the caller has no
+                        # way to distinguish "small file" from "cut off".
+                        return None
                     chunks.append(chunk)
-                return b"".join(chunks)[:max_bytes]
+                return b"".join(chunks)
         except Exception:
             return None
 

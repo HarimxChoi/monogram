@@ -4,8 +4,8 @@ name: backup-verify
 # Fails loudly if the backup is missing, empty, or diverged from source.
 # Uses a separate BACKUP_GITHUB_PAT (scoped only to the backup repo).
 #
-# Per CONTRIBUTING.md, this is a scheduled maintenance job — human action
-# required on failure (likely PAT rotation or mirror-job regression).
+# Scheduled maintenance job — human action required on failure
+# (likely PAT rotation or mirror-job regression).
 
 on:
   schedule:

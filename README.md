@@ -1,27 +1,27 @@
 # Monogram
 
-> Drop into Telegram. Auto-save as wiki. Wake up to a project dashboard.
+**Language:** [English](README.md) · [Korean](README.ko.md)
+
+> A personal knowledge pipeline: Telegram shares and GitHub commits auto-organize into wiki, kanban, calendar, morning briefings, MCP, and an encrypted dashboard.
 
 [![tests](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml)
 [![eval](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Send anything to Telegram Saved Messages — a link, a thought, a PDF,
-a photo. Monogram classifies it with a 5-stage LLM pipeline and
-atomically commits it to a private GitHub repo as structured markdown.
-Then it renders the vault as an auto-generated, encrypted dashboard
-on GCP.
+Anything you share to Telegram Saved Messages and anything you commit
+on GitHub flows through a 5-stage LLM pipeline and lands as structured
+markdown in a private GitHub repo — one atomic commit per drop. The
+vault then renders into an auto-generated, encrypted dashboard on GCP.
 
 Your commits auto-organize into a Kanban. Your links become a wiki.
-Your mornings get a briefing. Same vault, three views — Obsidian,
-the dashboard, and Claude Desktop via MCP.
+Your mornings arrive as a briefing, calendar events included. Same
+vault, three views — Obsidian, the dashboard, and MCP.
 
 ![Monogram dashboard — projects, wiki, life recent, commits](docs/images/dashboard.png)
 
 Dark, information-dense, password-protected, client-side decrypted.
-Runs from a static bucket ($0 / month on GCS free tier), a self-hosted
-server, or not at all (MCP-only mode). Design reference:
+Hosted automatically on GCP free tier at $0 / month. Design reference:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
 > 🎬 **30-second walkthrough** — capture → vault → dashboard → MCP query. *Coming soon.*
@@ -156,6 +156,14 @@ sees them. Full table + fallback chain in
 [docs/ingestion.md](docs/ingestion.md). HWP is hardened against
 CVE-2024-12425/12426 and CVE-2025-1080; see [SECURITY.md](SECURITY.md).
 
+## Credentials
+
+Sensitive info shared to Saved Messages — passwords, API keys,
+personal ID numbers — is isolated to `life/credentials/`, a path the
+LLM is code-level blocked from reading. It lives only in your
+private GitHub repo, and you retrieve it by syncing that repo to
+Obsidian on a device you trust.
+
 ## What this is *not*
 
 - Not a chat bot — no conversational turn-taking.
@@ -166,8 +174,8 @@ CVE-2024-12425/12426 and CVE-2025-1080; see [SECURITY.md](SECURITY.md).
 ## Roadmap
 
 - **v0.8 (current)** — core pipeline, ingestion, hardening, observability. Package live on PyPI as `mono-gram`; dogfood underway.
-- **v1.0** — tag cut after dogfood wraps.
-- **v1.1** — news digest, MCP client mode, BM25 + embeddings search.
+- **v1.0** — tag cut after dogfood wraps. KakaoTalk, LINE, WhatsApp support.
+- **v1.1** — news digest, MCP client mode, BM25 + embeddings / Graphify search.
 
 Roadmap: see CHANGELOG.md for shipped features.
 
@@ -181,7 +189,6 @@ Roadmap: see CHANGELOG.md for shipped features.
 - [docs/setup/mcp-clients.md](docs/setup/mcp-clients.md) — Claude Desktop / Cursor integration
 - [docs/eval.md](docs/eval.md) — eval harness + kill-switch design
 - [SECURITY.md](SECURITY.md) — threat model + disclosure
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to help
 
 ## License
 

@@ -21,11 +21,18 @@ v0.7 eval fields (new):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import ClassVar
 
 from . import github_store
+
+# life_categories must match [a-z0-9-]+ so derive_path("life", slug, area)
+# can round-trip through slugify without collisions. A non-ASCII or
+# special-char entry would slugify down to "untitled" and collide with
+# every other unroutable category.
+_VALID_LIFE_CATEGORY_RE = re.compile(r"^[a-z0-9-]+$")
 
 log = logging.getLogger("monogram.vault_config")
 
@@ -95,7 +102,10 @@ class VaultConfig:
     # Cap on URLs processed per drop (guards against URL-spam).
     ingestion_max_urls_per_drop: int = 3
     # YouTube: use Whisper fallback when transcript is unavailable.
-    # Opt-in because Whisper is CPU/GPU-heavy (5-30s per minute of video).
+    # STUB in v0.8 — the hook exists but the download/transcribe pipeline
+    # is not yet implemented; opting in will only produce a warning log
+    # and fall through to metadata-only. Real implementation is tracked
+    # for v0.8.1. Opt-in is preserved so config doesn't break post-v0.8.1.
     youtube_whisper_fallback: bool = False
     # arXiv: enrich with Semantic Scholar citation count (adds 1-2s/URL)
     arxiv_enrichment: bool = True
@@ -140,7 +150,17 @@ def load_vault_config() -> VaultConfig:
     if isinstance(meta.get("primary_language"), str) and meta["primary_language"]:
         cfg.primary_language = meta["primary_language"]
     if isinstance(meta.get("life_categories"), list):
-        cats = [c for c in meta["life_categories"] if isinstance(c, str) and c]
+        cats: list[str] = []
+        for c in meta["life_categories"]:
+            if not isinstance(c, str) or not c:
+                continue
+            if not _VALID_LIFE_CATEGORY_RE.match(c):
+                log.warning(
+                    "vault_config: life_categories entry %r must match "
+                    "[a-z0-9-]+ (kebab-case ASCII); skipping", c,
+                )
+                continue
+            cats.append(c)
         if cats:
             cfg.life_categories = cats
     if isinstance(meta.get("never_read_paths"), list):

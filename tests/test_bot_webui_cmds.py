@@ -20,7 +20,7 @@ def _reset(monkeypatch):
 
 def _make_msg(text: str, user_id: int | None = None):
     from monogram.bot_webui_cmds import _cfg
-    uid = user_id if user_id is not None else _cfg.telegram_user_id
+    uid = user_id if user_id is not None else _cfg().telegram_user_id
     msg = MagicMock()
     msg.text = text
     msg.from_user = SimpleNamespace(id=uid)

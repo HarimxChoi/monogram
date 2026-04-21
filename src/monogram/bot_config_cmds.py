@@ -10,6 +10,7 @@ Telegram bot is already authenticated by `config.telegram_user_id`.
 from __future__ import annotations
 
 import logging
+from functools import cache
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -24,11 +25,16 @@ from .vault_config import load_vault_config, reload_vault_config
 log = logging.getLogger("monogram.bot_config")
 
 router = Router()
-_cfg = load_config()
+
+
+@cache
+def _cfg():
+    """Lazy app-config accessor — defers .env loading until first use."""
+    return load_config()
 
 
 def _user_allowed(msg: Message) -> bool:
-    return msg.from_user.id == _cfg.telegram_user_id
+    return msg.from_user.id == _cfg().telegram_user_id
 
 
 def _read_meta_and_body() -> tuple[dict, str]:
