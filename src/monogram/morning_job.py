@@ -408,32 +408,70 @@ def _build_brief_prompt(ctx: MorningContext) -> str:
         parts.append("")
 
     parts.append("""
-Produce a MorningBriefData JSON object with these rules:
+Produce a MorningBriefData JSON object. Every narrative field should
+read like a careful colleague who actually looked at the commits and
+project bodies — not a vague status-meeting summary.
 
-1. For EACH project above, produce a ProjectBoardEntry:
-   - slug: exact lowercase kebab-case slug
-   - badge (English, structural):
-       "[active • D-N]" when status=active AND deadline exists (N = days until; negative = overdue)
-       "[active]" when status=active AND no deadline
-       "[inactive • N days]" when status=inactive (N = days since last activity; if unknown, say "N+ days")
-       "[done]" when status=done
-   - current_state (NARRATIVE — in user's primary language): one sentence
-   - next_step (NARRATIVE): one sentence on what matters most now
-   - recent_activity (NARRATIVE): 1-2 sentences summarizing yesterday's commits
+## Order projects before emitting
 
-2. For each life category with entries, produce a LifeBriefEntry:
-   - area: exact category name (lowercase English)
-   - count: len(entries)
-   - titles: copy each title VERBATIM — they are already in the user's language
+Sort projects with this priority before adding them to the output:
+  1. overdue deadlines (deadline < today)
+  2. deadlines within 7 days, nearest first
+  3. projects with new activity yesterday, by commit count desc
+  4. everything else, alphabetical by slug
 
-3. new_knowledge_summary (NARRATIVE): 1-2 sentences about yesterday's wiki additions.
-   Empty string if none.
+## ProjectBoardEntry (one per project above)
 
-4. calendar: for each project with a deadline within 7 days of today, add a
-   CalendarEvent with title="<slug>: deadline", when=<human-readable>,
-   iso_start=<ISO 8601 YYYY-MM-DD>. Skip past deadlines.
+- `slug`: exact lowercase kebab-case slug.
+- `badge` (English, structural — these strings are parsed downstream):
+    "[active • D-N]" when status=active AND deadline exists (N = days
+        until; negative = overdue → e.g. "[active • D+3 overdue]").
+    "[active]" when status=active AND no deadline.
+    "[inactive • N days]" when status=inactive (N = days since last
+        activity; use "N+ days" if unknown).
+    "[done]" when status=done.
+- `current_state` (NARRATIVE, user's primary language, ONE sentence):
+    Concrete. Name a specific component, file area, or feature that
+    moved — not the project name restated. Bad: "작업 중". Good:
+    "인증 리팩터링이 절반 진행됐고, 세션 검증 부분만 남음".
+- `next_step` (NARRATIVE, ONE sentence):
+    The FIRST concrete action a reader would take if they opened the
+    project today. Bad: "테스트 추가". Good: "session.invalidate() 에
+    대한 unit test 작성해서 CI 통과시키기".
+- `recent_activity` (NARRATIVE, 1–2 sentences):
+    Synthesize yesterday's commits into intent, not a restatement.
+    Pull concrete nouns (file names, feature names) from the commit
+    subjects. Bad: "진전이 있었음". Good: "listener 가 PDF/HWP 첨부까지
+    처리하도록 디스패처가 들어왔고, 봇 쪽도 같은 분기로 맞췄음".
+    If no commits, write "(어제 커밋 없음)" (or equivalent in the user's
+    language).
 
-Return ONLY valid JSON matching MorningBriefData. No preamble.
+Never write: "made progress", "진전이 있었음", "작업 중", or any
+variant of "continued working on X". If you can't say something
+specific, say nothing — empty strings are preferable to filler.
+
+## LifeBriefEntry (one per life category with entries)
+
+- `area`: exact category name (lowercase English).
+- `count`: len(entries).
+- `titles`: copy each title VERBATIM — they are already in the user's
+  language, never paraphrase.
+
+## new_knowledge_summary (NARRATIVE, 1–2 sentences)
+
+What new wiki entries teach, connected when possible. Bad: "새 글이
+2개 추가됨". Good: "RTMPose 와 MediaPipe Pose 가 추가 — 둘 다 실시간
+포즈 추정이지만 RTMPose 가 V100 기준 ~500 FPS 로 훨씬 빠름". Empty
+string if no new wiki entries.
+
+## calendar
+
+For each project with a deadline within 7 days of today, add a
+CalendarEvent with title="<slug>: deadline", when=<human-readable>,
+iso_start=<ISO 8601 YYYY-MM-DD>. Skip past deadlines.
+
+Return ONLY valid JSON matching MorningBriefData. No preamble, no
+trailing prose.
 """)
     return "\n".join(parts)
 
