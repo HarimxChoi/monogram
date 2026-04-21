@@ -2,27 +2,27 @@
 
 **Language:** [English](README.md) · [한국어](README.ko.md)
 
-> Telegram 으로 던진다 → 위키로 쌓인다 → 아침엔 대시보드.
+> Telegram 에 공유한 모든 것을 위키로, 모든 커밋을 칸반 프로젝트로, 대시보드로 한눈에 — 자동화된 파이프라인.
 
 [![tests](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml)
 [![eval](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Telegram Saved Messages 에 뭐든 보낸다 — 링크, 메모, PDF, 사진.
-Monogram 이 5-stage LLM pipeline 으로 분류해서, 구조화된 마크다운으로
-private GitHub 레포에 한 커밋에 담아 올린다. 그리고 볼트를 GCP 에
-자동 생성·암호화된 대시보드로 렌더링한다.
+Telegram Saved Messages 에 뭐든 공유하면 — 링크, 메모, PDF, 사진 —
+Monogram 이 5-stage LLM pipeline 으로 분류하고 구조화된 마크다운으로
+private GitHub 레포에 한 커밋으로 원자적으로 기록합니다. 이 볼트는
+GCP 위에 자동 생성·암호화된 대시보드로 렌더링됩니다.
 
-커밋은 자동으로 Kanban 이 된다. 링크는 위키가 된다. 아침엔 브리핑이
-도착한다. 볼트 하나, 뷰 세 개 — Obsidian, 대시보드, 그리고 MCP 로
-연결된 Claude Desktop.
+커밋은 자동으로 칸반이 되고, 공유한 링크는 위키가 되어 아침에
+리포트가 도착합니다. 같은 볼트, 뷰는 세 가지 — Obsidian, 대시보드,
+그리고 MCP 로 연결된 Claude Desktop.
 
 ![Monogram 대시보드 — projects, wiki, life recent, commits](docs/images/dashboard.png)
 
-다크, 정보 밀도 높음, 비밀번호 보호, 클라이언트 사이드 복호화.
-static bucket ($0/월, GCS 프리티어), 자체 호스팅 서버, 아니면 아예
-호스팅 없이 (MCP-only 모드) 돌릴 수 있다. 디자인 참고:
+다크, 정보 밀도 높은 UI, 비밀번호 보호, 클라이언트 사이드 복호화.
+정적 버킷 (GCS 프리티어에서 월 $0), 자체 호스팅 서버, 아니면 아예
+웹을 안 쓰는 MCP-only 모드. 디자인 참고:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
 > 🎬 **30-second walkthrough** — 캡처 → 볼트 → 대시보드 → MCP 쿼리. *준비 중.*
@@ -85,14 +85,15 @@ static bucket ($0/월, GCS 프리티어), 자체 호스팅 서버, 아니면 아
 └──────────────────────────────────────────────────────────────┘
 ```
 
-여섯 수평 레이어. 입력 → 파이프라인 → 볼트/백업 → 소비자 surface.
-관측성과 eval 은 아래에서 cross-cutting. 자세한 건
+여섯 개의 수평 레이어로 구성되어 있고, 입력 → 파이프라인 →
+볼트/백업 → 소비자 surface 순으로 이어집니다. 관측성과 eval 은
+아래에서 cross-cutting 으로 걸쳐 있습니다. 상세 문서:
 [docs/architecture.md](docs/architecture.md).
 
 ## Quickstart
 
 Python 3.10+, GitHub 계정, Telegram 계정, LLM API 키 하나 (Gemini
-프리티어면 충분).
+프리티어로 충분함).
 
 ```bash
 pip install mono-gram
@@ -101,46 +102,46 @@ monogram auth            # one-time Telegram auth
 monogram run             # listener + bot (leave running)
 ```
 
-> pip 패키지명은 `mono-gram`, CLI 와 Python import 경로는 모두
-> `monogram` — `from monogram import ...`.
+> pip 패키지 이름은 `mono-gram`, CLI 명령어는 `monogram` 그대로이며
+> Python import 경로도 `monogram` 입니다 — `from monogram import ...`.
 
-Saved Messages 에 뭔가 던지면 몇 초 안에 볼트 레포에 커밋이 올라온다.
-End-to-end walkthrough (GCP 프리티어 → PyPI):
+Saved Messages 에 뭐든 보내면 몇 초 안에 볼트 레포에 커밋이
+업로드됩니다. 배포 end-to-end (GCP 프리티어 → PyPI):
 **[deploying.md](deploying.md)**.
 
-Optional extras:
+선택 확장:
 
 ```bash
 pip install 'mono-gram[ingestion-all]'   # YouTube, arXiv, PDF, Office, HWP
-pip install 'mono-gram[eval]'            # cassette-replay eval harness
+pip install 'mono-gram[eval]'            # cassette-replay eval 하네스
 ```
 
 ## Web UI
 
-볼트 하나, 대시보드 배포 방식 세 개.
+하나의 볼트로 3가지 방식의 대시보드 생성.
 
 | 모드 | 실행 위치 | 언제 고르나 |
 |---|---|---|
-| **GCS** | 정적 버킷, 클라이언트 사이드 복호화 | 기본값. 북마크 가능한 URL, 개인 규모에선 $0. |
+| **GCS** | 정적 버킷 + 클라이언트 사이드 복호화 | 기본값. 북마크 가능한 URL, 개인 규모에서 $0. |
 | **Self-host** | 로컬 Flask 또는 임의 정적 호스트 | 에어갭 / 사설 네트워크. |
-| **MCP-only** | 웹 인터페이스 없음 — Claude Desktop / Cursor 로만 접근 | 터미널 중심 워크플로우. |
+| **MCP-only** | 웹 UI 없이 Claude Desktop / Cursor 로만 접근 | 터미널 중심 워크플로우. |
 
-비밀번호 보호, 저장 시 암호화, 호스트에는 ciphertext 만 올라간다.
-morning / weekly 실행 때 재생성. 세팅:
+비밀번호로 보호되고 저장 시 암호화되며, 호스트에는 ciphertext 만
+업로드됩니다. morning / weekly 실행마다 자동으로 재생성됩니다. 세팅:
 [docs/setup/gcp-webui.md](docs/setup/gcp-webui.md) (~5분).
 
 ## What you get
 
-- **Single-commit atomic writes** — GitHub Git Tree API 기반. 부분 상태 없음.
-- **SSRF-hardened URL ingestion** — 모든 redirect hop 검증, CGNAT 와 cloud metadata 범위까지 포함.
-- **Credential safety by construction** — classifier 단계 discriminator + verifier 게이트.
-- **Observability** — 드롭당 JSONL 한 줄. 필요할 때 p50/p95/p99 집계. Telegram `/stats` 로 조회.
-- **Backup isolation** — 별도 PAT + CI 의 월간 복원 드릴.
-- **LLM pluggability** — Gemini / Anthropic / OpenAI / Ollama / custom, tier 별 지정.
-- **Eval harness** — cassette replay (LLM 비용 0), 실드롭에서 fixture 자라는 harvest loop (기본 off).
+- **Single-commit atomic writes** — GitHub Git Tree API 로 드롭 하나가 한 커밋에 묶여 올라갑니다. 부분 상태 없음.
+- **SSRF-hardened URL ingestion** — redirect 의 모든 hop 을 사전 검증하고, CGNAT 와 cloud metadata 범위까지 차단합니다.
+- **Credential safety by construction** — classifier 단계 discriminator 와 verifier 게이트로 이중 차단.
+- **Observability** — 드롭당 JSONL 한 줄이 남고, 필요할 때 p50/p95/p99 로 집계되며 Telegram `/stats` 로도 조회됩니다.
+- **Backup isolation** — 별도 PAT 와 별도 레포를 쓰고, 월간 CI 가 복원 드릴까지 검증합니다.
+- **LLM pluggability** — Gemini / Anthropic / OpenAI / Ollama / custom 을 tier 별로 자유롭게 섞어 씁니다.
+- **Eval harness** — cassette replay 는 LLM 비용 0 이고, 기본 off 인 harvest loop 가 실드롭에서 fixture 를 늘려갑니다.
 - **Kill-switch** — 독립 레이어 3개, first-match-wins.
 
-각 항목은 [docs/](docs/) 에 짧은 섹션.
+각 항목은 [docs/](docs/) 에 별도 섹션으로 정리되어 있습니다.
 
 ## Commands
 
@@ -153,25 +154,25 @@ backup · mcp-serve · eval · migrate
 
 ## Ingestion
 
-URL, PDF, Office 문서 — 파이프라인이 보기 전에 추출된다. 전체 표와
-폴백 체인은 [docs/ingestion.md](docs/ingestion.md). HWP 는
-CVE-2024-12425/12426, CVE-2025-1080 에 대해 하드닝.
-[SECURITY.md](SECURITY.md) 참고.
+URL, PDF, Office 문서는 파이프라인이 보기 전에 텍스트로 추출됩니다.
+전체 표와 폴백 체인은 [docs/ingestion.md](docs/ingestion.md) 참고.
+HWP 는 CVE-2024-12425/12426, CVE-2025-1080 에 대해 하드닝되어
+있으며, 자세한 위협 모델은 [SECURITY.md](SECURITY.md) 참고.
 
 ## What this is *not*
 
-- 챗봇 아니다 — 대화형 turn-taking 없음.
-- 검색 엔진 아니다 — `monogram search` 는 grep + scope 필터. 시맨틱 검색은 v1.1.
-- 멀티유저 아니다 — Telegram 계정 하나, 볼트 하나, 사람 한 명.
-- Obsidian / Notion / Logseq 의 대체품 아니다 — 수집 경로일 뿐. 볼트는 어떤 마크다운 에디터에서도 그대로 열린다.
+- 챗봇이 아닙니다 — 대화형 turn-taking 은 지원하지 않습니다.
+- 검색 엔진이 아닙니다 — `monogram search` 는 grep + scope 필터이고, 시맨틱 검색은 v1.1 에서 지원할 예정입니다.
+- 멀티유저가 아닙니다 — Telegram 계정 하나, 볼트 하나, 사람 한 명을 전제로 설계됐습니다.
+- Obsidian / Notion / Logseq 의 대체품이 아닙니다 — 어디까지나 수집 경로이고, 볼트 자체는 어떤 마크다운 에디터에서도 그대로 열립니다.
 
 ## Roadmap
 
-- **v0.8 (현재)** — core pipeline, ingestion, 하드닝, 관측성. `mono-gram` 은 이미 PyPI 에 있고 dogfood 진행 중.
-- **v1.0** — dogfood 마무리 후 tag cut.
-- **v1.1** — 뉴스 다이제스트, MCP 클라이언트 모드, BM25 + embeddings 검색.
+- **v0.8 (현재)** — core pipeline, ingestion, 하드닝, 관측성까지 갖춰져 있고, `mono-gram` 은 이미 PyPI 에 공개돼 있으며 dogfood 진행 중입니다.
+- **v1.0** — dogfood 마무리 후 정식 tag cut.
+- **v1.1** — 뉴스 다이제스트, MCP 클라이언트 모드, BM25 + embeddings 기반 검색 추가.
 
-출하된 기능은 CHANGELOG.md 참고.
+출시된 기능 목록은 [CHANGELOG.md](CHANGELOG.md).
 
 ## Links
 
@@ -186,4 +187,4 @@ CVE-2024-12425/12426, CVE-2025-1080 에 대해 하드닝.
 
 ## License
 
-MIT. [LICENSE](LICENSE) 참고.
+MIT 라이선스입니다. 자세한 내용은 [LICENSE](LICENSE) 참고.
