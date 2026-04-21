@@ -133,6 +133,46 @@ async def _execute_pending(entry, msg: Message) -> None:
         await msg.answer(f"✗ Unknown kind: {entry.kind}")
 
 
+async def _extract_bot_attachment(msg: Message) -> tuple[str, str | None]:
+    """Download + extract any file attachment on a bot message.
+
+    Returns (drop_text, error_reply). On success, `drop_text` is the
+    combined caption+extracted-file text ready for `handle_drop`, and
+    `error_reply` is None. On failure, `drop_text` is the caption (if
+    any) and `error_reply` is a short line to send to the user.
+
+    Mirrors the listener's document branch so both entry points stay in
+    sync on PDF / HWP / Office / text routing.
+    """
+    caption = (msg.caption or "").strip()
+    doc = msg.document
+    if doc is None:
+        return caption, None
+
+    from io import BytesIO
+
+    from .ingestion.attachment import build_drop_text, extract_attachment
+
+    fname = doc.file_name or "attachment"
+    mime = doc.mime_type or ""
+
+    try:
+        buf = BytesIO()
+        await bot().download(doc, destination=buf)
+        file_bytes = buf.getvalue()
+    except Exception as e:
+        return caption, f"file download failed ({fname}): {e}"
+
+    result = await extract_attachment(file_bytes, mime, fname)
+    if result.success:
+        return build_drop_text(caption, result), None
+
+    warn = result.warning or "unknown"
+    fallback = caption if caption else ""
+    tail = " — processing caption only" if caption else ""
+    return fallback, f"extract failed ({fname}): {warn}{tail}"
+
+
 @dp.message()
 async def handle_any(msg: Message):
     if msg.from_user.id != _cfg().telegram_user_id:
@@ -180,6 +220,42 @@ async def handle_any(msg: Message):
         except ImportError:
             pass
         await msg.answer("Token expired or not found.")
+        return
+
+    # File attachment (PDF / HWP / Office / text / unsupported) —
+    # download + extract BEFORE falling through to handle_drop. Before
+    # this branch existed the bot silently dropped non-text messages.
+    if msg.document is not None:
+        drop_text, attach_err = await _extract_bot_attachment(msg)
+        if attach_err:
+            await msg.answer(attach_err, parse_mode=None)
+            if not drop_text:
+                return
+        text = drop_text
+    elif (msg.photo or msg.video or msg.audio or msg.voice
+          or msg.animation or msg.sticker or msg.video_note):
+        # Known-but-not-supported media kinds. Reply explicitly so the
+        # user doesn't see silence. Images in particular: direct-to-bot
+        # vision isn't wired here — Saved Messages goes through the
+        # listener, which does run vision OCR.
+        kind = next(
+            (k for k in ("photo", "video", "audio", "voice", "animation",
+                         "sticker", "video_note")
+             if getattr(msg, k, None)),
+            "media",
+        )
+        await msg.answer(
+            f"{kind} not processed via bot DM — share to Saved Messages "
+            "for OCR / transcription paths (or wrap as a file).",
+            parse_mode=None,
+        )
+        return
+
+    if not text:
+        await msg.answer(
+            "empty drop — no text and no recognizable attachment",
+            parse_mode=None,
+        )
         return
 
     # Otherwise, treat as a drop. Wrap in try/except so a pipeline /
