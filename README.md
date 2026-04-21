@@ -26,7 +26,7 @@ Dark, information-dense, password-protected, client-side decrypted.
 Hosted automatically on GCP free tier at $0 / month. Design reference:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
-https://github.com/user-attachments/assets/9f144500-535f-4c51-9cc0-e87aaa33498f
+<video src="https://github.com/user-attachments/assets/9f144500-535f-4c51-9cc0-e87aaa33498f" controls muted playsinline width="320"></video>
 
 <!--
   ┌─────────────────────────────────────────────────────────────┐
