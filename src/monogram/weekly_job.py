@@ -7,17 +7,19 @@ See docs/vault-layout.md.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 from . import github_store
-from .config import load_config
 from .llm import complete
 from .models import get_model
 from .safe_read import is_blocked, safe_read
 
-config = load_config()
+log = logging.getLogger("monogram.weekly_job")
 
 RETENTION_DAYS = 67
+_PRO_CALL_TIMEOUT_SECONDS = 120
 
 
 def _last_monday(reference: datetime) -> datetime:
@@ -71,16 +73,19 @@ async def generate_weekly_report(lint_section: str = "") -> str | None:
     context = "\n\n".join(daily_content_parts) if daily_content_parts else "(no daily activity)"
 
     try:
-        report = await complete(
-            f"Generate a weekly report for {week_label} ({monday_str} to {sunday_str}). "
-            f"Include: Main themes, Top accomplishments, Lessons that compounded, "
-            f"Project status deltas, Upcoming. Add Calendar events section ONLY "
-            f"if long-horizon deadlines detected — include Google Calendar add-URLs. "
-            f"Keep under 600 words.\n\n{context}",
-            model=get_model("high"),
+        report = await asyncio.wait_for(
+            complete(
+                f"Generate a weekly report for {week_label} ({monday_str} to {sunday_str}). "
+                f"Include: Main themes, Top accomplishments, Lessons that compounded, "
+                f"Project status deltas, Upcoming. Add Calendar events section ONLY "
+                f"if long-horizon deadlines detected — include Google Calendar add-URLs. "
+                f"Keep under 600 words.\n\n{context}",
+                model=get_model("high"),
+            ),
+            timeout=_PRO_CALL_TIMEOUT_SECONDS,
         )
     except Exception as e:
-        print(f"weekly report: Pro call failed ({e!r}); using minimal fallback")
+        log.warning("weekly report: Pro call failed (%r); using minimal fallback", e)
         report = "(Pro call unavailable — see daily reports in `daily/YYYY-MM-DD/report.md`)"
 
     body_parts = [
@@ -146,7 +151,7 @@ async def archival_sweep() -> list[str]:
                 if f.type != "file":
                     continue
                 if is_blocked(f.path):
-                    print(f"archival_sweep: skipping blocked path {f.path}")
+                    log.warning("archival_sweep: skipping blocked path %s", f.path)
                     continue
                 raw_path = f"raw/{folder_date_str}/{f.name}"
                 content = f.decoded_content.decode()
@@ -154,7 +159,7 @@ async def archival_sweep() -> list[str]:
                 repo.delete_file(f.path, f"monogram: archive sweep — moved to raw/", f.sha)
             moved.append(folder_date_str)
         except Exception as e:
-            print(f"archival_sweep error for {folder_date_str}: {e}")
+            log.warning("archival_sweep error for %s: %s", folder_date_str, e)
 
     return moved
 
@@ -168,7 +173,7 @@ async def run_weekly_job(push_to_telegram: bool = True, force: bool = False) -> 
 
     now = datetime.now(timezone.utc)
     if not force and now.weekday() != 6:
-        print(f"weekly job: skipping, today is {now.strftime('%A')} not Sunday")
+        log.info("weekly job: skipping, today is %s not Sunday", now.strftime('%A'))
         return {"report_generated": False, "folders_archived": [], "skipped": True}
 
     with log_run("weekly") as status:

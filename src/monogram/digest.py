@@ -13,6 +13,7 @@ PAT requirements:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from functools import cache
 
 from github import Github
 from github.Auth import Token
@@ -21,7 +22,11 @@ from github.GithubException import GithubException
 from . import github_store
 from .config import load_config
 
-config = load_config()
+
+@cache
+def _cfg():
+    """Lazy app-config accessor — defers .env loading until first use."""
+    return load_config()
 
 
 def _today() -> str:
@@ -30,13 +35,13 @@ def _today() -> str:
 
 def _watch_repos() -> list[str]:
     """Return the comma-separated watched-repos list, excluding scheduler itself."""
-    raw = config.monogram_watch_repos or ""
+    raw = _cfg().monogram_watch_repos or ""
     return [r.strip() for r in raw.split(",") if r.strip()]
 
 
 def _fetch_commits_since(full_name: str, since: datetime) -> list[dict]:
     """Return a list of {sha, time, author, message} for commits in `full_name`."""
-    g = Github(auth=Token(config.github_pat))
+    g = Github(auth=Token(_cfg().github_pat))
     repo = g.get_repo(full_name)
     commits = repo.get_commits(since=since)
     out: list[dict] = []

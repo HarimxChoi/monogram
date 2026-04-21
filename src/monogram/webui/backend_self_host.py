@@ -4,8 +4,11 @@ Serves the encrypted shell over localhost, wraps with a cloudflared
 tunnel so the URL is reachable from anywhere. Quick tunnels rotate
 per restart (trycloudflare.com subdomain); for a stable URL use gcs.
 
-cloudflared binary is auto-downloaded to ~/.local/bin/cloudflared on
-first publish if missing.
+cloudflared is **not auto-downloaded**. Earlier versions pulled a
+binary from GitHub releases without checksum verification — a
+supply-chain risk we chose not to keep. Users install it themselves
+via a package manager (Homebrew, apt, winget, the official installer)
+and we error with a clear message if it's missing from PATH.
 """
 from __future__ import annotations
 
@@ -14,9 +17,8 @@ import logging
 import os
 import platform
 import re
-import stat
+import shutil
 import sys
-import urllib.request
 from pathlib import Path
 
 from . import WebUIBackend
@@ -24,6 +26,8 @@ from . import WebUIBackend
 log = logging.getLogger("monogram.webui.self_host")
 
 
+# Download URLs kept only so the error message can point the user at the
+# right artifact when cloudflared is missing. We never fetch them.
 _CLOUDFLARED_URLS = {
     ("linux", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
     ("linux", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
@@ -35,18 +39,9 @@ _CLOUDFLARED_URLS = {
 _TUNNEL_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 
-def _binary_path() -> Path:
-    """Cross-platform cloudflared binary path."""
-    if sys.platform.startswith("win"):
-        base = Path(os.environ.get("USERPROFILE", str(Path.home()))) / ".local" / "bin"
-        return base / "cloudflared.exe"
-    return Path.home() / ".local" / "bin" / "cloudflared"
-
-
 def _platform_key() -> tuple[str, str]:
     sysname = platform.system().lower()  # linux, darwin, windows
     mach = platform.machine().lower()
-    # Normalize
     if mach in ("x86_64", "amd64"):
         mach = "x86_64" if sysname != "windows" else "amd64"
     if mach in ("aarch64", "arm64"):
@@ -54,29 +49,27 @@ def _platform_key() -> tuple[str, str]:
     return sysname, mach
 
 
-def _download_cloudflared() -> Path:
+def _locate_cloudflared() -> Path:
+    """Find cloudflared on PATH. Raise with an install hint if missing."""
+    found = shutil.which("cloudflared") or shutil.which("cloudflared.exe")
+    if found:
+        return Path(found)
+
     sysname, mach = _platform_key()
-    url = _CLOUDFLARED_URLS.get((sysname, mach))
-    if not url:
-        raise RuntimeError(
-            f"No cloudflared binary for {sysname}/{mach}. "
-            f"Download manually from https://github.com/cloudflare/cloudflared/releases"
-        )
-    binary = _binary_path()
-    binary.parent.mkdir(parents=True, exist_ok=True)
-    log.info("cloudflared: downloading %s → %s", url, binary)
-    urllib.request.urlretrieve(url, str(binary))
-    if not sys.platform.startswith("win"):
-        st = os.stat(binary)
-        os.chmod(binary, st.st_mode | stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
-    return binary
-
-
-def _ensure_cloudflared() -> Path:
-    binary = _binary_path()
-    if binary.exists():
-        return binary
-    return _download_cloudflared()
+    url = _CLOUDFLARED_URLS.get((sysname, mach), "(platform not listed)")
+    hints = (
+        "brew install cloudflare/cloudflare/cloudflared"      # macOS
+        if sysname == "darwin"
+        else "apt-get install cloudflared"                     # linux hint
+        if sysname == "linux"
+        else "winget install cloudflare.cloudflared"           # windows
+    )
+    raise RuntimeError(
+        "cloudflared not found on PATH. Install it first, then re-run.\n"
+        f"  Suggested: {hints}\n"
+        f"  Direct download ({sysname}/{mach}): {url}\n"
+        "  (Auto-download was removed for supply-chain safety.)"
+    )
 
 
 class SelfHostBackend(WebUIBackend):
@@ -86,6 +79,10 @@ class SelfHostBackend(WebUIBackend):
         self._tunnel_proc: asyncio.subprocess.Process | None = None
         self._tunnel_url: str | None = None
         self._current_html: bytes = b""
+        # Keeps cloudflared's stdout pipe drained after URL capture so a
+        # chatty tunnel doesn't fill its OS buffer and block. Cancelled in
+        # teardown.
+        self._stdout_drain_task: asyncio.Task | None = None
 
     def _port(self) -> int:
         from ..vault_config import load_vault_config
@@ -133,7 +130,7 @@ class SelfHostBackend(WebUIBackend):
     async def _ensure_tunnel(self) -> None:
         if self._tunnel_proc is not None and self._tunnel_proc.returncode is None:
             return
-        binary = _ensure_cloudflared()
+        binary = _locate_cloudflared()
         port = self._port()
         self._tunnel_proc = await asyncio.create_subprocess_exec(
             str(binary),
@@ -167,6 +164,24 @@ class SelfHostBackend(WebUIBackend):
         self._tunnel_url = url
         log.info("self_host: tunnel URL %s", url)
 
+        # Keep consuming stdout in the background — otherwise cloudflared's
+        # pipe buffer fills on a chatty tunnel and the process blocks on
+        # write, which manifests as a silent tunnel hang.
+        async def _drain_stdout() -> None:
+            try:
+                assert self._tunnel_proc and self._tunnel_proc.stdout
+                while True:
+                    line = await self._tunnel_proc.stdout.readline()
+                    if not line:
+                        return
+                    log.debug("cloudflared: %s", line.decode("utf-8", "replace").rstrip())
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # pragma: no cover — defensive
+                log.debug("cloudflared stdout drain stopped: %s", e)
+
+        self._stdout_drain_task = asyncio.create_task(_drain_stdout())
+
     async def publish(self, encrypted_html: bytes) -> str:
         self._current_html = encrypted_html
         await self._ensure_server()
@@ -178,6 +193,14 @@ class SelfHostBackend(WebUIBackend):
         return self._tunnel_url
 
     async def teardown(self) -> None:
+        if self._stdout_drain_task is not None:
+            self._stdout_drain_task.cancel()
+            try:
+                await self._stdout_drain_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._stdout_drain_task = None
+
         if self._tunnel_proc and self._tunnel_proc.returncode is None:
             self._tunnel_proc.terminate()
             try:
