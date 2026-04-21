@@ -132,8 +132,8 @@ async def _download_pdf(url: str, max_bytes: int = 20 * 1024 * 1024) -> bytes | 
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = resp.read(max_bytes + 1)
                 if len(data) > max_bytes:
-                    log.warning("pdf download exceeded size cap")
-                    return data[:max_bytes]
+                    log.warning("pdf download exceeded size cap (%d bytes)", max_bytes)
+                    return None
                 return data
         except Exception as e:
             log.warning("pdf download via urllib failed: %s", e)

@@ -284,9 +284,12 @@ def escalation_policy(verify_result, upstream_confidences):
     return "flash-lite-thinking-on"
 ```
 
-Escalation does **not** re-run the full pipeline. It re-runs only the stage
-that produced the weak signal, with a stronger model or thinking enabled.
-This keeps escalation cost bounded to 1-2 extra calls.
+Escalation does **not** re-run the full pipeline. When the verifier sets
+`escalate=true`, `pipeline.py` re-runs **extractor + verifier** on the
+`mid` tier (classifier output is kept — its `daily_only` fallback already
+absorbs the ambiguous cases). If the second verifier pass still
+escalates, the pipeline returns a blocked result for the user to
+handle. Cost is bounded to 2 extra calls.
 
 ---
 

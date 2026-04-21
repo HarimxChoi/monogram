@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..llm import extract
+from ..models import get_model
 
 ORCHESTRATOR_SYSTEM_PROMPT = """\
 You are the orchestrator stage of Monogram's pipeline.
@@ -56,5 +57,6 @@ async def run(payload: str) -> PipelinePlan:
         prompt=payload,
         schema=PipelinePlan,
         system=ORCHESTRATOR_SYSTEM_PROMPT,
+        model=get_model("low"),
         agent_tag="orchestrator",
     )

@@ -4,13 +4,13 @@ Deliver the Monogram dashboard via GCP Cloud Storage. Stable URL you can
 bookmark / add to your home screen. Content is encrypted client-side —
 the bucket only ever holds ciphertext.
 
-- **Cost:** ~$0.01/month at personal scale (30 regenerations/day)
+- **Cost:** **$0/month** — every line item stays within the GCP always-free tier at personal scale. See [Cost expectation](#cost-expectation-april-2026-pricing) below for the exact thresholds.
 - **Setup:** ~5 minutes on any OS
 - **URL format:** `https://storage.googleapis.com/<bucket>/<path_slug>/index.html`
 
 ## Prerequisites
 
-- GCP account with billing enabled (required even for near-zero cost)
+- GCP account with **billing enabled** — required only so the Storage API will accept requests. Actual usage is $0.
 - `gcloud` CLI ([cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install))
 - A password ≥ 16 chars (use your password manager's generator)
 
@@ -152,17 +152,40 @@ decryptable with any known key.
 
 ## Cost expectation (April 2026 pricing)
 
-Storage class: Standard, us-central1.
+Storage class: Standard, `us-central1` (always-free region).
 
-- Storage: ~1 MB peak per day (encrypted shell is ~300 KB; lifecycle keeps ≤ 7 days)
-- Class A ops (writes): 30-60 per day
-- Class B ops (reads): 5-50 per day (only when you view)
-- Egress: ~20-50 MB/month
+Encrypted bundle: **~300 KB per revision** (single HTML blob with inline
+CSS/JS, wrapped by AES-256-GCM).
 
-Monthly total: **well under $0.05**. Always-free tier covers the class
-ops and most egress. If you see a bill over $1/month, something escaped
-(a misconfigured bucket lifecycle, an accidental second bucket, etc.).
-Set a **$5/month budget alert** to catch regressions early.
+**Personal-scale usage vs. always-free tier**:
+
+| Line item | Your usage | Free-tier limit | Headroom |
+|---|---|---|---|
+| Storage (regional) | ~2 MB peak (300 KB × 7-day lifecycle) | 5 GB-month | 99.96% |
+| Class A ops (writes) | 1–5/day (morning job + manual `/webui`) | 5,000/month | >97% |
+| Class B ops (reads) | 1/visit | 50,000/month | see below |
+| Egress (NA → internet) | 300 KB/visit | 100 GB/month | see below |
+
+**Every line item is $0.** Billing must be enabled on the project so
+the Storage API will accept calls at all — no charges are incurred.
+
+### How hard would it be to actually get billed?
+
+Binding caps at the 300 KB/visit bundle size:
+
+- **~1,666 dashboard visits per day** before Class B reads leave the free
+  tier. This is the tightest constraint.
+- **~11,000 visits per day** before the 100 GB/month egress cap kicks in.
+- **~160 regenerations per day** before Class A writes leave free (the
+  default schedule does 1–2/day).
+- The 7-day lifecycle rule keeps storage under 10 MB at all times —
+  ~500× below the 5 GB-month free ceiling.
+
+At personal scale you are not going to produce 1,666 HTTP GETs per day
+against your own dashboard. If a bill does appear, something escaped the
+tier (misconfigured lifecycle, a second unrelated bucket in the project,
+a runaway regeneration job). Set a **$5/month budget alert** as a
+smoke detector.
 
 ## Security notes
 
