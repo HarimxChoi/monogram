@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 import json
 
 from ..llm import complete
+from ..models import get_model
 from .classifier import Classification
 
 EXTRACTOR_SYSTEM_PROMPT = """\
@@ -102,6 +103,16 @@ _DROP_TYPE_TO_SCHEMA: dict[str, Type[BaseModel]] = {
     "ambiguous": PersonalLog,
 }
 
+# target_kind overrides drop_type for schema routing. Classifier can emit
+# (drop_type="task", target_kind="life") if the user's language is ambiguous;
+# without this map the extractor would ask the LLM for ProjectUpdate fields
+# on a shopping item. Keying on target_kind guarantees the schema matches
+# the writer's dispatch in writer.run.
+_TARGET_KIND_TO_SCHEMA: dict[str, Type[BaseModel]] = {
+    "life": LifeEntry,
+    "credential": CredentialEntry,
+}
+
 
 async def run(
     payload: str,
@@ -113,22 +124,22 @@ async def run(
     if classification is None:
         return PersonalLog(content=payload)
 
-    schema = _DROP_TYPE_TO_SCHEMA.get(classification.drop_type, PersonalLog)
+    schema = (
+        _TARGET_KIND_TO_SCHEMA.get(classification.target_kind)
+        or _DROP_TYPE_TO_SCHEMA.get(classification.drop_type, PersonalLog)
+    )
     prompt = (
         f"Payload:\n{payload}\n\n"
         f"Classification: {classification.model_dump_json()}"
     )
 
-    kwargs: dict = dict(
+    raw = await complete(
         prompt=prompt,
         system=EXTRACTOR_SYSTEM_PROMPT,
         response_format=schema,
+        model=model_override or get_model("low"),
         agent_tag="extractor",
     )
-    if model_override:
-        kwargs["model"] = model_override
-
-    raw = await complete(**kwargs)
     data = json.loads(raw)
     # LLM may return wrong kind value (e.g. "task" instead of "project_update");
     # override with the schema's default since kind is a discriminator, not LLM-generated.

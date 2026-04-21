@@ -7,6 +7,7 @@ Design rules (see docs/architecture.md for sourcing):
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
@@ -16,6 +17,8 @@ from github import Auth, Github
 from github.GithubException import GithubException, UnknownObjectException
 
 from .config import load_config
+
+log = logging.getLogger("monogram.github_store")
 
 
 def _now_iso() -> str:
@@ -49,13 +52,13 @@ def write(path: str, content: str, message: str) -> bool:
         return True
     except (UnknownObjectException, GithubException) as e:
         if isinstance(e, GithubException) and getattr(e, "status", None) != 404:
-            print(f"github_store.write error: {e}")
+            log.error("write %s: %s", path, e)
             return False
         try:
             repo.create_file(path, message, content)
             return True
         except GithubException as inner:
-            print(f"github_store.write create error: {inner}")
+            log.error("write create %s: %s", path, inner)
             return False
 
 
@@ -75,7 +78,7 @@ def write_multi(writes: dict[str, str], message: str) -> bool:
         if not ok:
             failed.append(path)
     if failed:
-        print(f"github_store.write_multi: {len(failed)} failed: {failed}")
+        log.error("write_multi: %d failed: %s", len(failed), failed)
         return False
     return True
 
@@ -162,6 +165,10 @@ def write_atomic(
             # 4. The atomic moment — either this takes or we retry
             try:
                 ref.edit(new_commit.sha)
+                log.info(
+                    "write_atomic: committed %d files as %s",
+                    len(writes), new_commit.sha[:7],
+                )
                 return True
             except GithubException as e:
                 # 422: "Update is not a fast-forward" = someone else
@@ -170,22 +177,27 @@ def write_atomic(
                 if _is_fast_forward_conflict(e):
                     last_error = e
                     if attempt < max_retries:
+                        log.warning(
+                            "write_atomic: ref.edit 422 on attempt %d; retrying",
+                            attempt,
+                        )
                         continue
-                    print(
-                        f"github_store.write_atomic: exhausted {max_retries} "
-                        f"retries on ref.edit 422 for {len(writes)} files"
+                    log.error(
+                        "write_atomic: exhausted %d retries on ref.edit 422 "
+                        "for %d files",
+                        max_retries, len(writes),
                     )
                     return False
                 raise
 
         except GithubException as e:
             last_error = e
-            print(f"github_store.write_atomic attempt {attempt} error: {e}")
+            log.error("write_atomic attempt %d error: %s", attempt, e)
             if attempt == max_retries:
                 return False
             # Non-422 errors get a single retry; 5xx/transient may succeed
 
-    print(f"github_store.write_atomic exhausted retries: {last_error}")
+    log.error("write_atomic exhausted retries: %s", last_error)
     return False
 
 

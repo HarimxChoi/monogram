@@ -53,7 +53,6 @@ the v0.7 eval harness landed.
   - Full `README.md` (was 1-line stub)
   - `LICENSE` (MIT)
   - `SECURITY.md` (vulnerability disclosure)
-  - `CONTRIBUTING.md` (solo-maintainer SLAs)
   - This file (`CHANGELOG.md`)
 
 ### Changed
