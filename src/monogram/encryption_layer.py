@@ -22,7 +22,8 @@ SALT_BYTES: Final = 16
 NONCE_BYTES: Final = 12
 KEY_BYTES: Final = 32  # AES-256
 PBKDF2_ITERATIONS: Final = 600_000
-MIN_PASSWORD_LEN: Final = 16
+MIN_PASSWORD_LEN: Final = 10
+MIN_UNIQUE_CHARS: Final = 6
 
 
 def validate_password(password: str) -> list[str]:
@@ -36,9 +37,9 @@ def validate_password(password: str) -> list[str]:
             f"password must be at least {MIN_PASSWORD_LEN} characters "
             f"(got {len(password)})"
         )
-    if len(set(password)) < 8:
+    if len(set(password)) < MIN_UNIQUE_CHARS:
         errors.append(
-            "password needs at least 8 unique characters "
+            f"password needs at least {MIN_UNIQUE_CHARS} unique characters "
             "(use a password manager's generator)"
         )
     return errors
