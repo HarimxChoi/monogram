@@ -1,6 +1,6 @@
 # Monogram
 
-**Language:** [English](README.md) · [한국어](README.ko.md)
+**Language:** [English](README.md) · [Korean](README.ko.md)
 
 > Drop into Telegram. Auto-save as wiki. Wake up to a project dashboard.
 
