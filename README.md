@@ -1,3 +1,5 @@
+
+
 # Monogram
 
 **Language:** [English](README.md) · [Korean](README.ko.md)
@@ -24,7 +26,7 @@ Dark, information-dense, password-protected, client-side decrypted.
 Hosted automatically on GCP free tier at $0 / month. Design reference:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
-> 🎬 **30-second walkthrough** — capture → markdown → dashboard → MCP query. *Coming soon.*
+https://github.com/user-attachments/assets/9f144500-535f-4c51-9cc0-e87aaa33498f
 
 <!--
   ┌─────────────────────────────────────────────────────────────┐
