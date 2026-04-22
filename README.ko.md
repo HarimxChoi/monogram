@@ -180,12 +180,32 @@ Telegram 1회 인증까지만 데스크톱에서 진행하면, 그 뒤로는 VM 
 
 ## Commands
 
+같은 마크다운에 대한 세 개의 surface — 상황에 맞는 걸 쓰세요.
+
+**CLI** — `monogram --help` 에 전부 있고, 스테이지별 동작은
+[docs/agents.md](docs/agents.md):
+
 ```
 run · morning · weekly · digest · search · stats
 backup · mcp-serve · eval · migrate
 ```
 
-`monogram --help` 또는 [docs/agents.md](docs/agents.md).
+**Telegram 봇** — 휴대폰에서 on-demand 리포트 + 마크다운 쿼리. 모든 명령이
+`TELEGRAM_USER_ID` 로 auth-gate 됩니다. 전체 레퍼런스:
+[docs/setup/telegram.md §6 Bot commands](docs/setup/telegram.md#6-bot-commands).
+
+```
+/report  [YYYY-MM-DD]   모닝 브리핑 (기본: 어제)
+/weekly  [YYYY-Www]     주간 리포트 (기본: 지난 월–일)
+/digest  [Nh|Nd|Nw]     N 시간/일/주 동안의 커밋 다이제스트 (기본: 24h)
+/search  <query>        고정 문자열 grep, credentials 경로는 차단
+/last    [N]            최근 N 개 드롭 (기본 10, 최대 50)
+/stats                  파이프라인 헬스 — log/pipeline.jsonl 의 p50/p95/p99
+```
+
+**MCP 서버** — Claude Desktop / Cursor / OpenClaw. reads + gated write +
+LLM config 13개 툴. 세팅: [docs/setup/mcp-clients.md](docs/setup/mcp-clients.md),
+전체 툴 목록은 [docs/mcp.md](docs/mcp.md).
 
 ## Ingestion
 

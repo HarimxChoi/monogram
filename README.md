@@ -179,12 +179,33 @@ Each is a short section in [docs/](docs/).
 
 ## Commands
 
+Three surfaces over the same markdown — use whichever's closest to hand.
+
+**CLI** — `monogram --help` lists these; full per-stage behavior in
+[docs/agents.md](docs/agents.md):
+
 ```
 run · morning · weekly · digest · search · stats
 backup · mcp-serve · eval · migrate
 ```
 
-Details: `monogram --help` or [docs/agents.md](docs/agents.md).
+**Telegram bot** — on-demand reports and markdown queries from your phone.
+Every command gates on `TELEGRAM_USER_ID`. Full reference:
+[docs/setup/telegram.md §6 Bot commands](docs/setup/telegram.md#6-bot-commands).
+
+```
+/report  [YYYY-MM-DD]   morning brief (default: yesterday)
+/weekly  [YYYY-Www]     weekly report (default: last Mon–Sun)
+/digest  [Nh|Nd|Nw]     commit digest since N (default: 24h)
+/search  <query>        fixed-string grep, credentials-path blocked
+/last    [N]            N most-recent drops (default 10, max 50)
+/stats                  pipeline health — p50/p95/p99 from log/pipeline.jsonl
+```
+
+**MCP server** — Claude Desktop / Cursor / OpenClaw. 13 tools across
+reads + a gated write + LLM config. Setup:
+[docs/setup/mcp-clients.md](docs/setup/mcp-clients.md); authoritative
+tool list in [docs/mcp.md](docs/mcp.md).
 
 ## Ingestion
 

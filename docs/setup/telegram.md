@@ -106,6 +106,73 @@ If Saved Messages drops don't commit within ~30s, check
 `journalctl -u monogram -f` on the VM for auth errors or `monogram
 auth` / `monogram run` stderr.
 
+## 6. Bot commands
+
+The bot exposes three kinds of command. Every command is gated on
+`TELEGRAM_USER_ID`; non-matching senders are silently ignored.
+
+### Reports & queries (on-demand from your phone)
+
+| Command | What it does | Default arg | Cooldown | LLM? |
+|---|---|---|---|---|
+| `/report [YYYY-MM-DD]` | Return `daily/<date>/report.md`. Generates on cache-miss for **yesterday** only. | yesterday | 10 min | ✓ Pro tier if generating |
+| `/weekly [YYYY-Www]` | Return `reports/weekly/<label>.md`. Generates on cache-miss for the **most recent completed week**. | last Mon–Sun | 30 min | ✓ Pro tier if generating |
+| `/digest [Nh\|Nd\|Nw]` | Fresh commit digest over the last window, then dump today's `commits.md`. | `24h` | 1 min | — |
+| `/search <query>` | Fixed-string grep over the markdown cache (top 20 hits). `life/credentials/` is unconditionally filtered out of bot results regardless of `never_read_paths`. | — | 5 sec | — |
+| `/last [N]` | N most-recent drop headers across `daily/*/drops.md` (default 10, max 50, scans last 14 days). | `10` | 5 sec | — |
+
+All responses are sent as plain text (`parse_mode=None`) and auto-chunk
+at 3800 chars — your GitHub-flavored Markdown is preserved but
+Telegram won't try to parse `**bold**` or fenced code and crash on it.
+
+### Drop confirmations & approvals
+
+- Any message that isn't a recognised command is treated as a drop
+  (same as sharing to Saved Messages). The bot replies with the
+  committed path + confidence + atomic-commit size.
+- `/approve_<token>` / `/deny_<token>` — one-time MCP / harvest write
+  approvals. Tokens are URL-safe 22-char base64 issued by the MCP
+  server or the eval harvest loop. TTL ~24h.
+
+### Admin / config
+
+- `/stats` — pipeline health: p50/p95/p99 latency, error rate, top
+  target kinds over the last 7 days. Reads `log/pipeline.jsonl`.
+- `/start` — one-liner intro.
+- `/status` — dumps the markdown README.
+- `/done <slug>` / `/revive <slug>` — atomic rename between
+  `projects/` and `projects/archive/` plus frontmatter status flip.
+- `/config_llm_*` — read/propose LLM config changes; writes are
+  approval-gated via `/approve_<token>`. See `src/monogram/bot_config_cmds.py`.
+- `/webui` / `/config_webui_*` — same pattern for the web UI mode +
+  credentials. See [docs/webui.md](../webui.md).
+- `/eval_status` / `/eval_enable` / `/eval_disable` — toggle the
+  3-layer eval kill-switch. See [docs/eval.md](../eval.md).
+
+### How this relates to MCP
+
+The bot and the MCP server are two **independent surfaces over the
+same markdown**. Both gate on `TELEGRAM_USER_ID` (MCP via the approval
+bot). The overlap looks like this:
+
+| What you want | Bot command | MCP tool |
+|---|---|---|
+| Yesterday's morning brief | `/report` | `get_morning_brief` |
+| Current project board | `/status` | `get_board` |
+| Specific project state | (n/a — use `/search <slug>`) | `current_project_state` |
+| Recent activity | `/last` | `recent_activity` |
+| Grep the wiki | `/search <q>` | `search_wiki` |
+| Set LLM config | `/config_llm_set` (gated) | `set_llm_config` (gated) |
+
+Use the bot when you're on your phone; use MCP from Claude Desktop /
+Cursor when you want conversational follow-ups on the results. Neither
+surface can exfiltrate `life/credentials/` — the path is blocked at
+both the code level (in `src/monogram/safe_read.py`) and the bot
+surface layer (in `src/monogram/bot_report_cmds.py`).
+
+Full MCP tool list + client setup: [docs/setup/mcp-clients.md](mcp-clients.md)
+and [docs/mcp.md](../mcp.md).
+
 ## Security notes
 
 - The bot token alone cannot read your Saved Messages — that's what
