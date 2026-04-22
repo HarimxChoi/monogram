@@ -114,21 +114,24 @@ def _parse_date_arg(raw: str | None) -> str | None:
 
 
 def _parse_duration_arg(raw: str | None, default_hours: int = 24) -> int:
-    """Parse `24h` / `7d` / `1w` into hours. Unparseable → default."""
+    """Parse `24h` / `7d` / `1w` into hours. Unparseable or non-positive
+    → default. Silently clamping negatives to 1 would surprise users."""
     if not raw:
         return default_hours
     token = raw.strip().split()[0].lower()
     try:
         if token.endswith("h"):
-            return max(1, int(token[:-1]))
-        if token.endswith("d"):
-            return max(1, int(token[:-1]) * 24)
-        if token.endswith("w"):
-            return max(1, int(token[:-1]) * 24 * 7)
-        # Bare integer → hours
-        return max(1, int(token))
+            n = int(token[:-1])
+        elif token.endswith("d"):
+            n = int(token[:-1]) * 24
+        elif token.endswith("w"):
+            n = int(token[:-1]) * 24 * 7
+        else:
+            # Bare integer → hours
+            n = int(token)
     except (ValueError, TypeError):
         return default_hours
+    return n if n >= 1 else default_hours
 
 
 def _last_week_label() -> str:
