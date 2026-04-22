@@ -211,6 +211,11 @@ ship the SOUL/SKILL bundle in v1.0, installation will reduce to
 
 If any step fails, jump to **Troubleshooting**.
 
+> **On your phone?** The same reads are available as Telegram bot
+> commands (`/report`, `/weekly`, `/search`, `/last`, …) — MCP and the
+> Telegram bot are two independent surfaces over the same vault.
+> Full bot reference: [docs/setup/telegram.md §6 Bot commands](telegram.md#6-bot-commands).
+
 ---
 
 ## 4. Troubleshooting

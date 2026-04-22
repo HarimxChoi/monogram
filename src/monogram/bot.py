@@ -52,6 +52,13 @@ dp.include_router(_eval_router)
 from .bot_stats_cmd import router as _stats_router  # noqa: E402
 dp.include_router(_stats_router)
 
+# v0.8: register /report /weekly /digest /search /last (on-demand reports +
+# vault queries from phone). Grouped in a separate router so bot.py stays
+# the control-plane entrypoint and content-plane commands live next to
+# each other in bot_report_cmds.py.
+from .bot_report_cmds import router as _report_router  # noqa: E402
+dp.include_router(_report_router)
+
 
 @dp.message(Command("start"))
 async def cmd_start(msg: Message):
