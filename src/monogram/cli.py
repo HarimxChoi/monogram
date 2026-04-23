@@ -776,5 +776,13 @@ from .cli_stats import stats_cmd as _stats_cli_cmd  # noqa: E402
 main.add_command(_stats_cli_cmd)
 
 
+# v0.9: `monogram news fetch` — pull external signals (FRED today, more
+# sources in Phase 2). Groups under a subcommand so future sources add
+# siblings (`news fetch --source open-meteo`, etc.) without polluting
+# the top-level command list.
+from .cli_news import news_group as _news_group  # noqa: E402
+main.add_command(_news_group)
+
+
 if __name__ == "__main__":
     main()
