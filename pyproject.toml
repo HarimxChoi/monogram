@@ -103,3 +103,20 @@ Changelog     = "https://github.com/HarimxChoi/monogram/releases"
 where = ["src", "."]
 include = ["monogram*", "evals*"]
 namespaces = false
+
+[tool.setuptools.package-data]
+# Web UI templates + static assets MUST ride with the wheel, otherwise
+# `monogram webui test` / `monogram morning` crash with
+# TemplateNotFound once the package is pip-installed (not -e editable).
+# The fix below explicitly enumerates every directory that holds
+# non-Python assets. Using `include-package-data = true` + MANIFEST.in
+# would also work, but explicit globs keep the contract visible in
+# one file and make it obvious at review time which assets ship.
+monogram = [
+    "webui/templates/*.j2",
+    "webui/templates/*.html",
+    "webui/templates/*.css",
+    "webui/templates/*.js",
+    "webui/templates/partials/*.j2",
+    "webui/templates/partials/*.html",
+]
