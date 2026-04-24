@@ -19,7 +19,7 @@ def test_valid_env_loads(isolated_env, monkeypatch):
     cfg = load_config()
 
     assert cfg.github_repo == "example-org/mono"
-    assert cfg.monogram_model == "gemini/gemini-2.5-flash-lite"
+    assert cfg.monogram_model == ""
     assert cfg.telegram_api_id == 12345
     assert cfg.telegram_user_id == 42
 
