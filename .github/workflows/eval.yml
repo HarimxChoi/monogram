@@ -61,6 +61,12 @@ jobs:
           TELEGRAM_API_HASH: "stub"
           TELEGRAM_BOT_TOKEN: "1234567890:AAFakeFakeFakeFakeFakeFakeFakeFakeFak"
           TELEGRAM_USER_ID: "1"
+          # Legacy fallback — the empty-default config field no longer
+          # auto-resolves to a model string. The replay suite routes all
+          # LLM calls through cassettes, but get_model() still runs
+          # before the cassette layer intercepts. Match the v0.3 legacy
+          # path so the resolver returns a valid string.
+          MONOGRAM_MODEL: "gemini/gemini-2.5-flash-lite"
           # Backfill mode: Gemini's free tier caps at 20 req/day/model,
           # so recording all 50 seed fixtures is a multi-day operation.
           # While cassettes are incomplete, fixtures without a recording
