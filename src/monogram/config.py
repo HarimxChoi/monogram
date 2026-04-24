@@ -32,8 +32,10 @@ class MonogramConfig(BaseSettings):
 
     # Legacy fallback — DO NOT DELETE. Used by models.get_model() when
     # mono/config.md has no llm_provider (v0.3 users who upgraded but
-    # haven't re-run init). New setups leave this empty and use vault config.
-    monogram_model: str = "gemini/gemini-2.5-flash-lite"
+    # haven't re-run init). Default MUST be "" so validate_llm_config()
+    # doesn't falsely flag a MONOGRAM_MODEL conflict for modern users
+    # who configure LLMs via vault config and never set MONOGRAM_MODEL.
+    monogram_model: str = ""
     monogram_watch_repos: str = ""
     notion_token: str = ""
     obsidian_vault_path: str = ""
