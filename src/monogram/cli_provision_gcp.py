@@ -26,6 +26,7 @@ write GOOGLE_APPLICATION_CREDENTIALS=<path> into .env.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from pathlib import Path
 
@@ -35,6 +36,77 @@ log = logging.getLogger("monogram.cli_provision_gcp")
 class ProvisionError(RuntimeError):
     """Raised when a gcloud call fails and no idempotent reuse applies."""
 
+
+# ── GCS bucket naming ────────────────────────────────────────────────
+
+# GCS naming rules (public docs): 3-63 chars, lowercase letters/digits/
+# dashes/underscores/periods, must start and end with alphanumeric, no
+# `goog` prefix, no `google` substring. Dots require domain verification
+# so we disallow them here to keep the provisioning path simple.
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9_\-]{1,61}[a-z0-9]$")
+
+
+def validate_bucket_name(name: str) -> str | None:
+    """Return a human-readable error, or None if the name is valid.
+
+    Caught at prompt time so the user gets an actionable message instead
+    of a gcloud 400 several seconds later.
+    """
+    if not name:
+        return "bucket name is empty"
+    if len(name) < 3 or len(name) > 63:
+        return f"bucket name must be 3-63 chars (got {len(name)})"
+    if name != name.lower():
+        return "bucket name must be lowercase"
+    if not _BUCKET_RE.match(name):
+        return (
+            "bucket name must start/end with a letter or digit and contain "
+            "only lowercase letters, digits, dashes, or underscores"
+        )
+    if name.startswith("goog") or "google" in name:
+        return "bucket name cannot start with 'goog' or contain 'google'"
+    if "." in name:
+        return (
+            "dots in bucket names require domain verification — use dashes "
+            "or underscores instead"
+        )
+    return None
+
+
+# ── gcloud error diagnostics ─────────────────────────────────────────
+
+_PERMISSION_PATTERNS = (
+    "PERMISSION_DENIED",
+    "does not have permission",
+    "required permission",
+    "insufficient permission",
+    "access denied",
+    "requires .* role",
+)
+_PERMISSION_RE = re.compile("|".join(_PERMISSION_PATTERNS), re.IGNORECASE)
+
+_IAM_SCOPE_HINT = (
+    "Your current gcloud identity lacks the IAM role this step needs.\n"
+    "  If running on a GCE VM: the default compute service account "
+    "usually cannot create other SAs or bind IAM roles. Fix by either:\n"
+    "    (a) authenticating as a project owner — `gcloud auth login` "
+    "from a workstation, or\n"
+    "    (b) running `monogram init` from Cloud Shell, then copy the "
+    "generated key to the VM and re-run init there.\n"
+    "  The wizard is idempotent — it will reuse the existing bucket + SA."
+)
+
+
+def _describe_gcloud_error(what: str, stderr: str) -> str:
+    """Format gcloud stderr for display. Full text, with guidance on perms."""
+    stderr = (stderr or "").strip()
+    base = f"{what} failed: {stderr}" if stderr else f"{what} failed"
+    if stderr and _PERMISSION_RE.search(stderr):
+        return f"{base}\n\n  Hint: {_IAM_SCOPE_HINT}"
+    return base
+
+
+# ── subprocess wrapper ───────────────────────────────────────────────
 
 def _run(cmd: list[str], timeout: float = 60.0) -> tuple[int, str, str]:
     """Run a gcloud command, capture stdout/stderr, never raise.
@@ -57,7 +129,7 @@ def _run(cmd: list[str], timeout: float = 60.0) -> tuple[int, str, str]:
 def _set_project(project: str) -> None:
     rc, _, err = _run(["gcloud", "config", "set", "project", project])
     if rc != 0:
-        raise ProvisionError(f"set project failed: {err.strip()[:200]}")
+        raise ProvisionError(_describe_gcloud_error("set project", err))
 
 
 def _enable_storage_api(project: str) -> None:
@@ -68,9 +140,7 @@ def _enable_storage_api(project: str) -> None:
         timeout=120.0,
     )
     if rc != 0:
-        raise ProvisionError(
-            f"enable storage API failed: {err.strip()[:200]}"
-        )
+        raise ProvisionError(_describe_gcloud_error("enable storage API", err))
 
 
 def _bucket_exists(bucket: str) -> bool:
@@ -99,7 +169,7 @@ def _create_bucket(bucket: str, project: str, region: str) -> str:
         # Race: another caller may have created it between our check and create.
         if _bucket_exists(bucket):
             return "exists"
-        raise ProvisionError(f"bucket create failed: {err.strip()[:200]}")
+        raise ProvisionError(_describe_gcloud_error("bucket create", err))
     return "created"
 
 
@@ -134,7 +204,7 @@ def _create_service_account(sa_name: str, project: str) -> str:
     if rc != 0:
         if _sa_exists(sa_name, project):
             return "exists"
-        raise ProvisionError(f"SA create failed: {err.strip()[:200]}")
+        raise ProvisionError(_describe_gcloud_error("SA create", err))
     return "created"
 
 
@@ -150,7 +220,7 @@ def _create_sa_key(sa_name: str, project: str, key_path: Path) -> None:
         timeout=30.0,
     )
     if rc != 0:
-        raise ProvisionError(f"SA key create failed: {err.strip()[:200]}")
+        raise ProvisionError(_describe_gcloud_error("SA key create", err))
     try:
         key_path.chmod(0o600)
     except OSError:
@@ -170,7 +240,7 @@ def _bind_role(bucket: str, member: str, role: str) -> None:
     )
     if rc != 0:
         raise ProvisionError(
-            f"bind {role} to {member} failed: {err.strip()[:200]}"
+            _describe_gcloud_error(f"bind {role} to {member}", err)
         )
 
 
@@ -187,8 +257,17 @@ def provision_gcs_bucket(
     project reuses the bucket + SA and only generates a fresh key if
     `key_path` doesn't already exist. Caller is responsible for
     deciding whether to rotate.
+
+    Default key path is `~/.gcp/<sa_name>-key.json` so the credentials
+    live in a stable location regardless of the user's cwd. Previous
+    versions dropped keys in `./.gcp/` which orphaned them if the user
+    ran init from a tmp dir.
     """
-    key_path = key_path or (Path.cwd() / ".gcp" / f"{sa_name}-key.json")
+    bucket_err = validate_bucket_name(bucket)
+    if bucket_err:
+        raise ProvisionError(f"invalid bucket name '{bucket}': {bucket_err}")
+
+    key_path = key_path or (Path.home() / ".gcp" / f"{sa_name}-key.json")
     summary: dict = {
         "project": project,
         "bucket": bucket,

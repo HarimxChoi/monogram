@@ -15,8 +15,9 @@ Why not MarkItDown + Docling (old plan):
   - Marker's single-tool design (also handles DOCX/PPTX/XLSX) makes it a
     cleaner fallback.
 
-Korean HWP files go through LibreOffice→PDF→this pipeline. MinerU (best
-for CJK) is optionally available but not default — adds complexity.
+Korean HWP files do NOT pass through this module — they go direct to
+text via pyhwp's `hwp5txt` in `ingestion/hwp.py` (pure Python, no
+intermediate PDF step).
 
 References:
   - https://themenonlab.blog/blog/best-open-source-pdf-to-markdown-tools-2026

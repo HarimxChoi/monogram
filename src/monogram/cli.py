@@ -150,7 +150,7 @@ def _provision_gcp_if_available(bucket: str) -> str:
             project=project,
             bucket=bucket,
             region=region,
-            key_path=_Path.cwd() / ".gcp" / "monogram-webui-key.json",
+            key_path=_Path.home() / ".gcp" / "monogram-webui-key.json",
         )
     except ProvisionError as e:
         click.echo(f"    ✗ provisioning failed: {e}")
@@ -355,10 +355,16 @@ def init(non_interactive: bool):
     webui_config: dict = {}
     if webui_choice == "1":
         webui_config["webui_mode"] = "gcs"
-        bucket_name = click.prompt(
-            "  Bucket name",
-            default=f"{username.lower()}-monogram-webui",
-        ).strip()
+        from .cli_provision_gcp import validate_bucket_name
+        while True:
+            bucket_name = click.prompt(
+                "  Bucket name",
+                default=f"{username.lower()}-monogram-webui",
+            ).strip()
+            err = validate_bucket_name(bucket_name)
+            if err is None:
+                break
+            click.echo(f"    ✗ {err}")
         webui_config["webui_gcs"] = {
             "bucket": bucket_name,
             "path_slug": "main",

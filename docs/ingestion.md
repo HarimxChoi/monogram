@@ -239,7 +239,8 @@ pip install 'mono-gram[ingestion-pdf-complex]'   # add Marker for scanned PDFs
 pip install 'mono-gram[ingestion-whisper]'       # add Whisper for video audio
 ```
 
-System dependency: LibreOffice >=25.2.1 (for HWP; installed via OS package manager).
+No system packages required — HWP5 extraction is pure Python via
+`pyhwp` (bundled in `mono-gram[ingestion-office]`).
 
 LLM access is not an ingestion extra — it ships as a core dep via
 `litellm`, which abstracts Gemini / Anthropic / OpenAI / Ollama.

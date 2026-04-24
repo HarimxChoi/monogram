@@ -115,12 +115,36 @@ async def extract_attachment(
             except UnicodeDecodeError:
                 text = data.decode("utf-8", errors="replace")
                 method = "utf8_decode_replace"
+
+            # Large-text condensation — if the file is long, run it
+            # through the map-reduce condenser so the pipeline classifier
+            # sees a real summary instead of the first 2000 chars. The
+            # full decoded text is preserved in raw_text for the raw/ tier.
+            from . import text as text_module
+            language_hint = ""
+            try:
+                from ..vault_config import load_vault_config
+                language_hint = (load_vault_config().primary_language or "").strip()
+            except Exception:
+                pass
+            condensed = await text_module.condense_for_pipeline(
+                text, filename=fname, language_hint=language_hint
+            )
+            if condensed is text:
+                return ExtractionResult(
+                    source_type="text",
+                    url="",
+                    text=text,
+                    metadata={"filename": fname, "mime": mime_type or ""},
+                    extraction_method=method,
+                )
             return ExtractionResult(
                 source_type="text",
                 url="",
-                text=text,
+                text=condensed,
+                raw_text=text,
                 metadata={"filename": fname, "mime": mime_type or ""},
-                extraction_method=method,
+                extraction_method=f"{method}+condensed",
             )
 
         if kind == "image":

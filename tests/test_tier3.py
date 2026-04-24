@@ -1,7 +1,8 @@
 """Tests for v0.8 Tier 3 — atomic writes, backup, search, social/office/hwp.
 
-We don't run live network or LibreOffice subprocess calls in tests —
-those happen in a separate integration suite. Here we verify:
+We don't run live network or external subprocess calls (pyhwp's
+`hwp5txt`, gcloud, etc.) in tests — those happen in a separate
+integration suite. Here we verify:
 
 - write_atomic: empty dict is no-op, 422 triggers retry, non-retryable
   errors propagate

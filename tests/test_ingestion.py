@@ -216,6 +216,81 @@ class TestExtractionResult:
         assert not result.success
         assert result.warning == "http_404"
 
+    def test_raw_text_preferred_in_raw_markdown(self):
+        """When text is a condensed summary, raw/ tier must get the full body."""
+        result = ExtractionResult(
+            source_type="text",
+            url="",
+            text="[condensed] short summary",
+            raw_text="FULL ORIGINAL CONTENT " * 200,
+            metadata={"filename": "notes.md"},
+            extraction_method="utf8_decode+condensed",
+        )
+        md = result.to_raw_markdown()
+        assert "FULL ORIGINAL CONTENT" in md
+        assert "[condensed] short summary" not in md
+
+    def test_raw_markdown_falls_back_to_text_when_raw_text_missing(self):
+        result = ExtractionResult(
+            source_type="text",
+            url="",
+            text="plain body",
+            raw_text=None,
+        )
+        md = result.to_raw_markdown()
+        assert "plain body" in md
+
+
+# ---------------------------------------------------------------------------
+# Large-text condenser (pure helpers — no LLM calls)
+# ---------------------------------------------------------------------------
+
+class TestTextCondenser:
+    def test_passthrough_under_threshold(self):
+        import asyncio
+        from monogram.ingestion.text import _PASSTHROUGH_MAX, condense_for_pipeline
+
+        short = "hello " * 100  # well under 8k
+        assert len(short) < _PASSTHROUGH_MAX
+        out = asyncio.run(condense_for_pipeline(short, filename="x.md"))
+        # Same reference = no LLM call, no allocation.
+        assert out is short
+
+    def test_split_respects_paragraph_boundary(self):
+        from monogram.ingestion.text import _split_on_boundaries
+
+        para1 = "Alpha. " * 800   # ~5600 chars
+        para2 = "Beta. " * 800
+        para3 = "Gamma. " * 800
+        text = para1 + "\n\n" + para2 + "\n\n" + para3
+        chunks = _split_on_boundaries(text, chunk_size=6000, overlap=200)
+        # Every chunk should end at a paragraph boundary where possible
+        assert len(chunks) >= 2
+        # At least one split must have happened at a \n\n boundary, so
+        # a chunk should end with the paragraph separator.
+        assert any(c.endswith("\n\n") for c in chunks)
+        # Concatenation (minus overlaps) covers the input prefix-wise.
+        assert "Alpha." in chunks[0]
+
+    def test_split_handles_no_boundaries(self):
+        from monogram.ingestion.text import _split_on_boundaries
+
+        text = "x" * 10_000  # no natural boundary
+        chunks = _split_on_boundaries(text, chunk_size=3000, overlap=100)
+        assert sum(len(c) for c in chunks) >= len(text)
+        # overlap should make total slightly larger than input
+        assert len(chunks) >= 3
+
+    def test_fallback_head_tail_format(self):
+        from monogram.ingestion.text import _fallback_head_tail
+
+        text = "head-content " * 200 + "middle " * 200 + "tail-content " * 200
+        out = _fallback_head_tail(text, filename="doc.md")
+        assert "head-content" in out
+        assert "tail-content" in out
+        assert "## Head" in out
+        assert "## Tail" in out
+
 
 # ---------------------------------------------------------------------------
 # Dispatcher behavior (no live network — verify error paths)

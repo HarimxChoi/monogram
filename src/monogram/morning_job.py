@@ -241,6 +241,7 @@ class WikiSnapshot:
 @dataclass
 class MorningContext:
     yesterday: str
+    language: str = "en"
     projects: list[ProjectSnapshot] = field(default_factory=list)
     life: list[LifeSnapshot] = field(default_factory=list)
     wiki_new: list[WikiSnapshot] = field(default_factory=list)
@@ -325,6 +326,7 @@ def _collect_project_snapshots(yesterday: str) -> list[ProjectSnapshot]:
 def _collect_morning_context(yesterday: str) -> MorningContext:
     return MorningContext(
         yesterday=yesterday,
+        language=load_vault_config().primary_language or "en",
         projects=_collect_project_snapshots(yesterday),
         life=_collect_life_snapshots(yesterday),
         wiki_new=_collect_wiki_snapshots(yesterday),
@@ -373,7 +375,13 @@ class MorningBriefData(BaseModel):
 
 
 def _build_brief_prompt(ctx: MorningContext) -> str:
-    parts = [f"Generate a morning brief for {ctx.yesterday} (previous day).", ""]
+    parts = [
+        f"Generate a morning brief for {ctx.yesterday} (previous day).",
+        f"User's primary language (ISO 639-1): {ctx.language}. "
+        f"Write every narrative field in this language. Structural values "
+        f"(slug, status, tags, badges, area names) stay lowercase English.",
+        "",
+    ]
 
     if ctx.projects:
         parts.append("## Projects")
