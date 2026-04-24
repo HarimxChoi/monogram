@@ -20,6 +20,35 @@ from evals.kill_switch import is_eval_enabled, is_few_shot_enabled
 _EVAL_ROOT = Path(__file__).parent
 
 
+def _parse_days(ctx, param, value) -> int:
+    """Click callback: accept `7`, `7d`, `168h`, `1w` and normalize to
+    integer days (≥ 1). Keeps CLI ergonomic in line with the bot's
+    `/digest 7d`, so users don't have to remember which surfaces take
+    which formats."""
+    if value is None:
+        return 7
+    if isinstance(value, int):
+        return value if value >= 1 else 7
+    s = str(value).strip().lower()
+    try:
+        if s.endswith("d"):
+            n = int(s[:-1])
+        elif s.endswith("h"):
+            # round up so `--since 12h` still harvests at least 1 day
+            n = max(1, (int(s[:-1]) + 23) // 24)
+        elif s.endswith("w"):
+            n = int(s[:-1]) * 7
+        else:
+            n = int(s)
+    except (ValueError, TypeError) as e:
+        raise click.BadParameter(
+            f"expected N, Nh, Nd, or Nw (got {value!r}): {e}"
+        ) from e
+    if n < 1:
+        raise click.BadParameter("must be ≥ 1 day")
+    return n
+
+
 @click.group(name="eval")
 def eval_group():
     """Evaluation harness — cassette replay + harvest loop.
@@ -180,7 +209,11 @@ def drift_cmd():
 
 
 @eval_group.command("harvest")
-@click.option("--since", "since_days", default=7, type=int, help="Harvest window in days.")
+@click.option(
+    "--since", "since_days",
+    default="7d", type=str, callback=_parse_days,
+    help="Harvest window (N, Nh, Nd, Nw). Defaults to 7d.",
+)
 @click.option("--dry-run", is_flag=True, help="Write audit copy only; skip replay + Telegram.")
 def harvest_cmd(since_days, dry_run):
     """Track A — harvest production drops into fixtures."""
