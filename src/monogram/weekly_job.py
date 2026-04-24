@@ -15,6 +15,7 @@ from . import github_store
 from .llm import complete
 from .models import get_model
 from .safe_read import is_blocked, safe_read
+from .vault_config import load_vault_config
 
 log = logging.getLogger("monogram.weekly_job")
 
@@ -72,10 +73,14 @@ async def generate_weekly_report(lint_section: str = "") -> str | None:
 
     context = "\n\n".join(daily_content_parts) if daily_content_parts else "(no daily activity)"
 
+    language = (load_vault_config().primary_language or "en").strip()
     try:
         report = await asyncio.wait_for(
             complete(
                 f"Generate a weekly report for {week_label} ({monday_str} to {sunday_str}). "
+                f"User's primary language (ISO 639-1): {language}. Write every "
+                f"narrative section in this language; keep section headers and "
+                f"structural strings in their source form. "
                 f"Include: Main themes, Top accomplishments, Lessons that compounded, "
                 f"Project status deltas, Upcoming. Add Calendar events section ONLY "
                 f"if long-horizon deadlines detected — include Google Calendar add-URLs. "
