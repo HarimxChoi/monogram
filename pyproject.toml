@@ -75,7 +75,18 @@ ingestion-video    = ["yt-dlp>=2026.1", "youtube-transcript-api>=1.0"]
 ingestion-research = ["arxiv>=2.0", "httpx>=0.25"]
 ingestion-pdf      = ["pymupdf4llm>=0.0.17"]
 ingestion-pdf-complex = ["marker-pdf>=1.0"]
-ingestion-office   = ["markitdown>=0.0.1", "pyhwp>=0.1"]
+# pyhwp>=0.1b15: the pre-release pin is intentional. pyhwp has never
+# cut a 1.0 — current is 0.1b15 and `>=0.1` would exclude every
+# existing build under PEP 440 (betas sort before finals).
+# markitdown[docx,xlsx,pptx]: markitdown 0.1 refactored to per-format
+# extras (lxml+mammoth for docx, openpyxl+pandas for xlsx, python-pptx
+# for pptx). A bare `markitdown` install can NOT handle any Office
+# document — we have to opt into the extras here so users of
+# `mono-gram[ingestion-office]` actually get office extraction.
+ingestion-office   = [
+    "markitdown[docx,xlsx,pptx]>=0.1.5",
+    "pyhwp>=0.1b15",
+]
 ingestion-whisper  = ["openai-whisper>=20231117"]
 ingestion-all = [
     "mono-gram[ingestion-video]",
