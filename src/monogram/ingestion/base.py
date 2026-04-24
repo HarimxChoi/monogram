@@ -30,6 +30,10 @@ class ExtractionResult:
     extraction_method: str = "unknown"    # "transcript" | "whisper_fallback" | etc
     success: bool = True                  # False if extraction degraded to metadata-only
     warning: str | None = None            # user-visible warning if success is partial
+    # Optional full-fidelity body for the raw/ tier when `text` was
+    # condensed for the pipeline (see ingestion/text.py::condense_for_pipeline).
+    # When None, `to_raw_markdown()` falls back to `text`.
+    raw_text: str | None = None
 
     def raw_path(self) -> str:
         """Slug for the raw/ tier file.
@@ -83,7 +87,8 @@ class ExtractionResult:
                     val = ", ".join(str(v) for v in val)
                 lines.append(f"- {key}: {val}")
 
-        lines.extend(["", "---", "", self.text])
+        body = self.raw_text if self.raw_text is not None else self.text
+        lines.extend(["", "---", "", body])
         return "\n".join(lines)
 
 
