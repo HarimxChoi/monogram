@@ -99,10 +99,12 @@ versions should upgrade.
 - **SSRF hardening** — URL ingestion validates every redirect hop
   (private IPs, CGNAT, cloud metadata endpoints). See
   `src/monogram/ingestion/base.py::is_safe_url`.
-- **HWP extraction** — LibreOffice is invoked with `--safe-mode`, a
-  fresh profile dir, and a minimal environment (no user secrets in
-  the subprocess env) to mitigate
-  CVE-2024-12425 / 12426 and CVE-2025-1080.
+- **HWP extraction** — handled by pyhwp's `hwp5txt` in an isolated
+  subprocess with a minimal environment, a 20MB input size cap, and a
+  60s hard timeout. pyhwp is pure Python with no URL handlers, macro
+  engine, or env-var expansion, so the LibreOffice CVE classes
+  (CVE-2024-12425 / 12426, CVE-2025-1080, CVE-2018-16858) do not apply.
+  HWPX files are not processed — they're surfaced with a clear warning.
 - **Atomic writes** — the listener commits through the GitHub Git Tree
   API (`github_store.write_atomic`) so a drop either lands as one
   commit or leaves no trace.

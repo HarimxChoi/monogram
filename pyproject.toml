@@ -75,7 +75,7 @@ ingestion-video    = ["yt-dlp>=2026.1", "youtube-transcript-api>=1.0"]
 ingestion-research = ["arxiv>=2.0", "httpx>=0.25"]
 ingestion-pdf      = ["pymupdf4llm>=0.0.17"]
 ingestion-pdf-complex = ["marker-pdf>=1.0"]
-ingestion-office   = ["markitdown>=0.0.1"]
+ingestion-office   = ["markitdown>=0.0.1", "pyhwp>=0.1"]
 ingestion-whisper  = ["openai-whisper>=20231117"]
 ingestion-all = [
     "mono-gram[ingestion-video]",

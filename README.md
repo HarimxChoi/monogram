@@ -211,8 +211,9 @@ tool list in [docs/mcp.md](docs/mcp.md).
 
 Drop URLs, PDFs, Office docs — they're extracted before the pipeline
 sees them. Full table + fallback chain in
-[docs/ingestion.md](docs/ingestion.md). HWP is hardened against
-CVE-2024-12425/12426 and CVE-2025-1080; see [SECURITY.md](SECURITY.md).
+[docs/ingestion.md](docs/ingestion.md). HWP5 extraction uses pyhwp —
+pure Python, no external binaries, narrow attack surface; see
+[SECURITY.md](SECURITY.md).
 
 ## Credentials
 
