@@ -166,7 +166,8 @@ urllib fallback does not follow redirects (safe default).
 
 ```
 docx / pptx / xlsx → MarkItDown → markdown
-hwp (Korean)       → LibreOffice CLI → PDF → §2.6 pipeline
+hwp  (HWP5)        → pyhwp hwp5txt → text
+hwpx               → attachment only (not extracted)
 ```
 
 MarkItDown is appropriate here (not for PDFs): it wraps `python-docx`,
@@ -174,20 +175,24 @@ MarkItDown is appropriate here (not for PDFs): it wraps `python-docx`,
 documents, ~10MB install, no ML models. See `ingestion/office.py`
 docstring for the rationale split.
 
-HWP (`ingestion/hwp.py`) goes through LibreOffice headless. Real threat
-surface — CVE-2024-12425, CVE-2024-12426, CVE-2025-1080, CVE-2018-16858
-all trigger on document load. Mitigations:
+HWP (`ingestion/hwp.py`) uses pyhwp's `hwp5txt` CLI. pyhwp is pure
+Python, ~10MB install, no external binaries. Covers HWP5 — the
+dominant Korean document format. HWPX (newer ZIP+XML container) is
+not supported by pyhwp and lands as an attachment with a warning.
+
+Security posture is narrow because the library is pure Python with no
+URL handlers, macro engine, or env-var expansion — the LibreOffice
+CVE classes (CVE-2024-12425 / 12426, CVE-2025-1080, CVE-2018-16858)
+do not apply. Remaining mitigations:
 
 | Control | Purpose |
 |---|---|
-| Version gate: refuse LibreOffice < 25.2.1 | CVEs patched upstream |
-| Minimal env (PATH, LANG, HOME=temp only) | Blocks CVE-2024-12426 env exfil |
-| Fresh `UserInstallation` profile dir per run | Contains blast radius |
-| `--safe-mode --headless --norestore --nofirststartwizard` | Minimum feature surface |
-| 60s subprocess timeout | Bounds hang/CPU exhaustion |
+| Minimal env (PATH, LANG, HOME=temp only) | Forecloses future config-read surprises |
+| Dedicated temp dir per invocation | Contains parser side-effects |
+| 60s subprocess timeout | Bounds hang / CPU exhaustion |
 | 20MB input size cap | Bounds parser attack surface |
 
-The resulting PDF is handed to the §2.6 pipeline. See `SECURITY.md`.
+See `SECURITY.md`.
 
 ---
 
@@ -206,7 +211,7 @@ The resulting PDF is handed to the §2.6 pipeline. See `SECURITY.md`.
 | pdf (fast) | PyMuPDF4LLM | markdown |
 | pdf (complex) | Marker (Surya OCR) | markdown |
 | docx/pptx/xlsx | MarkItDown | markdown |
-| hwp | LibreOffice → PDF → §2.6 | markdown |
+| hwp (HWP5) | pyhwp hwp5txt | text |
 
 Once normalized to markdown, the agent pipeline (see
 `docs/architecture.md` section 1) takes over: orchestrator → classifier
