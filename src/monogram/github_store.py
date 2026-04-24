@@ -109,9 +109,11 @@ def append(path: str, line: str, commit_msg: str) -> bool:
 #     we retry the ENTIRE sequence with a freshly-read parent. Orphan blobs
 #     from the failed attempt are collected by GitHub's git GC.
 #
-# NOT USED BY DEFAULT in v0.8. The listener + morning_job continue to use
-# write_multi. Callers opt into atomicity per-operation. Full cutover in
-# a future minor release after a soak period (plan §4.4 R5 discipline).
+# v0.8 default write path. Listener drops, weekly rollup, morning brief
+# scaffolding, backup mirror, and `monogram init` all go through this.
+# `write_multi` is retained as dead code only — any future caller with
+# multi-file writes should use write_atomic instead so partial-state
+# failure modes stay impossible by construction.
 
 
 def write_atomic(

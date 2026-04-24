@@ -5,7 +5,7 @@ from a phone without SSH:
 
     /report  [YYYY-MM-DD]   morning brief for a date (default: yesterday)
     /weekly  [YYYY-Www]     weekly report (default: last Mon–Sun block)
-    /digest  [Nh|Nd]        commit digest since N hours/days (default: 24h)
+    /digest  [Nh|Nd|Nw]     commit digest since N hours/days/weeks (default: 24h)
     /search  <query>        grep the vault (credentials path always blocked)
     /last    [N]            last N drops across dates (default 10, cap 50)
 
