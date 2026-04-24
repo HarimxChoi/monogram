@@ -192,17 +192,14 @@ sudo apt update && sudo apt upgrade -y
 # Python + build tools
 sudo apt install -y python3.12 python3.12-venv python3-pip git ripgrep
 
-# For HWP (Korean) extraction — skip if you don't need this
-sudo apt install -y libreoffice
-
 # For PDF extraction fallback — skip if you don't need this
 sudo apt install -y poppler-utils
 ```
 
-> **HWP hardening:** if you install LibreOffice, confirm version
-> `≥25.2.1` to get the CVE-2024-12425/12426 and CVE-2025-1080 fixes.
-> Run `libreoffice --version` to check. Older Ubuntu releases ship
-> older LibreOffice — upgrade via the LibreOffice PPA if needed.
+HWP (Korean) extraction is pure-Python via `pyhwp` — no system packages
+to install. It ships in `mono-gram[ingestion-office]` and covers HWP5
+(the dominant format). HWPX drops are preserved as attachments with a
+warning rather than body-extracted.
 
 ---
 
@@ -274,9 +271,21 @@ This wizard:
 - Creates the initial vault structure in `<your-github-user>/mono`
   (`identity/`, `daily/`, `wiki/`, `projects/`, `config.md`, etc.)
 - Writes a sample `config.md` with sensible defaults
+- Provisions the GCS bucket + service account + IAM bindings if you
+  pick `webui=gcs` (runs the gcloud commands from `docs/webui.md`
+  for you)
 - Commits the scaffolding
 
 Expected duration: ~90 seconds.
+
+> **GCE VM caveat** — the default compute service account attached to
+> `e2-micro` instances can't create other service accounts or bind IAM
+> roles. If the wizard's GCS provisioning step fails with a
+> permission-denied error, run `monogram init` from a local
+> workstation or Cloud Shell where your identity has project owner,
+> then copy the generated key file to `~/.gcp/monogram-webui-key.json`
+> on the VM. The wizard is idempotent — re-running on the VM will
+> reuse the bucket + SA and just wire up `.env`.
 
 ### 6.3 Telegram first-run auth
 

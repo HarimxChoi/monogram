@@ -14,6 +14,24 @@ the bucket only ever holds ciphertext.
 - `gcloud` CLI ([cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install))
 - A password ≥ 10 chars with ≥ 6 unique characters (use your password manager's generator)
 
+## Fast path: `monogram init`
+
+If you've already run `gcloud auth login` as a project owner,
+`monogram init` handles everything below automatically — bucket,
+service account, IAM bindings, key file, `.env` additions. Just
+pick option **[1] GCS** when the wizard asks about the web UI.
+
+> **GCE VM caveat** — if you're running `monogram init` on the GCE
+> VM itself, the default compute service account usually cannot
+> create SAs or bind IAM roles. Run the wizard from a local
+> workstation (or Cloud Shell) where your identity has project
+> owner. The wizard is idempotent, so re-running on the VM after
+> provisioning completes elsewhere will reuse the existing bucket
+> and SA.
+
+If you'd rather do it by hand, the manual steps below are still
+supported and stay in sync with what the wizard runs.
+
 ## 1. Create project + bucket
 
 Windows / PowerShell:
