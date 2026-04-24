@@ -211,8 +211,8 @@ LLM config 13개 툴. 세팅: [docs/setup/mcp-clients.md](docs/setup/mcp-clients
 
 URL, PDF, Office 문서는 파이프라인이 보기 전에 텍스트로 추출됩니다.
 전체 표와 폴백 체인은 [docs/ingestion.md](docs/ingestion.md) 참고.
-HWP 는 CVE-2024-12425/12426, CVE-2025-1080 에 대해 하드닝되어
-있으며, 자세한 위협 모델은 [SECURITY.md](SECURITY.md) 참고.
+HWP5 는 `pyhwp` 기반 — 순수 Python 이라 외부 바이너리 없음,
+어택 표면이 좁습니다. 자세한 위협 모델은 [SECURITY.md](SECURITY.md) 참고.
 
 ## Credentials
 

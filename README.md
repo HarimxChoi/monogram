@@ -234,7 +234,7 @@ retrieve it by syncing that repo to Obsidian on a device you trust.
 
 ## Roadmap
 
-- **v0.8 (current)** — core pipeline, ingestion, hardening, observability. Package live on PyPI as `mono-gram`; dogfood underway.
+- **v0.8 (current)** — core pipeline, ingestion, hardening, observability. Install from source while PyPI approval is pending (see Quickstart); dogfood underway.
 - **v1.0** — tag cut after dogfood wraps. KakaoTalk, LINE, WhatsApp support.
 - **v1.1** — news digest, MCP client mode, BM25 + embeddings / Graphify search.
 
