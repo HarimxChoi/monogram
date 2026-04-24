@@ -49,10 +49,10 @@ dependencies = [
     "pydantic-settings>=2.0",
     "pyyaml>=6.0",
     "mcp>=1.0",
-    # Required at import time by cli.py run → validate_webui_config → encryption_layer
-    # and by webgen.py. Keeping in base deps because validate_webui_config is
-    # called unconditionally at startup; making these optional requires lazy
-    # imports we don't want to ship in v0.6.0.
+    # Needed by `monogram run` (validate_webui_config → encryption_layer)
+    # and by webgen.py / `monogram webui test` / `monogram morning`. These
+    # paths hit cryptography+jinja2 on every non-mcp-only install, so they
+    # stay in base deps instead of an optional extra.
     "cryptography>=42.0",
     "jinja2>=3.1",
 ]
