@@ -24,7 +24,7 @@ Runs from a static bucket ($0 / month on GCS free tier), a self-hosted
 server, or not at all (MCP-only mode). Design reference:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
-> 🎬 **30-second walkthrough** — capture → vault → dashboard → MCP query. *Coming soon.*
+![Monogram walkthrough — capture, vault, dashboard, MCP](docs/images/short-demo.gif)
 
 <!--
   ┌─────────────────────────────────────────────────────────────┐
