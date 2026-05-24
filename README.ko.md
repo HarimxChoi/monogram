@@ -2,26 +2,26 @@
 
 [English](./README.md) | 한국어
 
-> Telegram에 던지면 자동으로 wiki 저장, 아침에 프로젝트 대시보드로 깨워줌
+> Telegram에 보내면 자동으로 wiki에 저장, 아침엔 프로젝트 대시보드로 정리해서 보여줌
 
 [![tests](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml)
 [![eval](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Telegram Saved Messages에 뭐든 던지기. 링크, 생각, PDF, 사진.
-Monogram이 5-stage LLM 파이프라인으로 분류해서 private GitHub repo에
-구조화된 markdown으로 atomic commit. 그 다음 vault를 자동 생성, 암호화된
-대시보드로 GCP에 렌더링.
+Telegram Saved Messages에 뭐든 보내기. 링크, 생각, PDF, 사진.
+5-stage LLM 파이프라인이 분류해서 private GitHub repo에 구조화된
+markdown으로 atomic commit. vault는 자동으로 만들어지고, 암호화된
+대시보드는 GCP에 올라감.
 
-Commit은 Kanban으로 자동 정리, 링크는 wiki가 되고, 아침엔 브리핑이 옴.
-같은 vault, 3가지 view: Obsidian, 대시보드, MCP 통해 Claude Desktop.
+Commit은 Kanban으로 정리되고, 링크는 wiki가 되고, 아침엔 브리핑이 옴.
+같은 vault, view 3가지: Obsidian, 대시보드, MCP로 Claude Desktop.
 
 ![Monogram dashboard — projects, wiki, life recent, commits](docs/images/dashboard.png)
 
-다크 테마, 정보 밀도 높음, 비밀번호 보호, 클라이언트 사이드 복호화.
+다크 테마, 정보 밀도 높음, 비밀번호로 보호, 클라이언트 사이드 복호화.
 static bucket에서 돌리거나 (GCS 무료 티어 기준 월 $0), self-host 서버,
-또는 아예 안 돌리고 MCP-only 모드. 디자인 레퍼런스:
+아니면 아예 안 돌리고 MCP-only 모드. 디자인 레퍼런스:
 [docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
 ![Monogram walkthrough — capture, vault, dashboard, MCP](docs/images/short-demo.gif)
@@ -75,7 +75,7 @@ monogram run             # listener + bot (계속 실행)
 > pip 패키지명은 `mono-gram`, CLI 명령어는 `monogram` 유지.
 > Python import도 `monogram`. `from monogram import ...`.
 
-Saved Messages에 뭐 하나 던지기. 몇 초 안에 vault repo에 commit이 올라옴.
+Saved Messages에 아무거나 하나 보내기. 몇 초 안에 vault repo에 commit이 올라옴.
 End-to-end walkthrough (GCP 무료 티어 → PyPI): **[deploying.md](deploying.md)**.
 
 선택 extras:
@@ -122,9 +122,9 @@ backup · mcp-serve · eval · migrate
 
 ## Ingestion
 
-URL, PDF, Office doc 던지면 파이프라인 들어가기 전에 추출됨. 전체 표 +
+URL, PDF, Office doc 보내면 파이프라인 들어가기 전에 추출됨. 전체 표 +
 fallback chain: [docs/ingestion.md](docs/ingestion.md). HWP는
-CVE-2024-12425/12426, CVE-2025-1080 hardening 적용, [SECURITY.md](SECURITY.md) 참고.
+CVE-2024-12425/12426, CVE-2025-1080 hardening 적용. [SECURITY.md](SECURITY.md) 참고.
 
 ## What this is *not*
 
