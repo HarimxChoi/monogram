@@ -1,5 +1,7 @@
 # Monogram
 
+English | [한국어](./README.ko.md)
+
 > Drop into Telegram. Auto-save as wiki. Wake up to a project dashboard.
 
 [![tests](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml)
