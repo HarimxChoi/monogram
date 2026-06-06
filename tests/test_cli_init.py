@@ -37,6 +37,8 @@ def test_init_happy_path_english_default_gemini(
         "",                      # tg api_hash
         "1",                     # LLM path: default Gemini
         "AIza_FAKE_KEY",         # Gemini API key
+        "3",                     # Web UI: mcp-only
+        "n",                     # skip GitHub Actions setup
     ]) + "\n"
     result = runner.invoke(main, ["init"], input=inputs, catch_exceptions=False)
 
@@ -114,6 +116,8 @@ def test_init_custom_categories_always_add_credentials(
         "", "", "", "",                 # Telegram blanks
         "1",                            # Default Gemini
         "AIza_X",                       # Gemini key
+        "3",                            # Web UI: mcp-only
+        "n",                            # skip GitHub Actions setup
     ]) + "\n"
     result = runner.invoke(main, ["init"], input=inputs, catch_exceptions=False)
     assert result.exit_code == 0, result.output
@@ -145,6 +149,8 @@ def test_init_byo_anthropic_tiered(
         "anthropic/claude-haiku-4-5",           # low
         "anthropic/claude-sonnet-4-6",          # mid
         "anthropic/claude-opus-4-7",            # high
+        "3",                                    # Web UI: mcp-only
+        "n",                                    # skip GitHub Actions setup
     ]) + "\n"
     result = runner.invoke(main, ["init"], input=inputs, catch_exceptions=False)
     assert result.exit_code == 0, result.output
@@ -177,6 +183,8 @@ def test_init_byo_ollama_single(
         "http://localhost:11434",            # base URL default
         "1",                                 # single mode
         "ollama/qwen2.5:7b",                 # model
+        "3",                                 # Web UI: mcp-only
+        "n",                                 # skip GitHub Actions setup
     ]) + "\n"
     result = runner.invoke(main, ["init"], input=inputs, catch_exceptions=False)
     assert result.exit_code == 0, result.output
