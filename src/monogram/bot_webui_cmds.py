@@ -1,10 +1,4 @@
-"""v0.6 — Bot commands for web UI delivery.
-
-Namespace: /webui and /config_webui_*
-
-Extends the /config_* Router pattern established in v0.4 bot_config_cmds.py.
-Only the whitelisted telegram_user_id can use these commands.
-"""
+"""Bot commands for web UI delivery (/webui, /config_webui_*)."""
 from __future__ import annotations
 
 import logging
@@ -70,9 +64,6 @@ async def _update_field(msg: Message, field_path: list[str], value) -> None:
         )
     else:
         await msg.answer("✗ Write to config.md failed")
-
-
-# ── /webui — regenerate + reply with URL ──
 
 
 @router.message(Command("webui"))
@@ -181,7 +172,6 @@ async def set_port(msg: Message):
 
 @router.message(Command("config_webui_open"))
 async def open_url(msg: Message):
-    """Return current URL without regenerating."""
     if not _user_allowed(msg):
         return
     from .webui import get_active_backend

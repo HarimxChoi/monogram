@@ -1,11 +1,4 @@
-"""v0.5 — poll daily/<today>/queue-*.md files, run each through the pipeline.
-
-Obsidian plugin writes captures to `daily/<today>/queue-<ts>-<rand>.md`.
-This poller runs alongside listener + bot in `monogram run`, picks up
-new queue files every 2 minutes, processes them, and deletes on success.
-
-Failure policy: leave the queue file + log error; retry next cycle.
-"""
+"""Poll daily/<today>/queue-*.md files and run each through the pipeline."""
 from __future__ import annotations
 
 import asyncio
@@ -28,12 +21,7 @@ def _today() -> str:
 
 
 def _list_queue_files(date: str | None = None) -> list[str]:
-    """Return full paths of queue-*.md files in daily/<date>/.
-
-    v0.5.1: skip files that have a companion `.processing` sidecar — those
-    are either in-flight or recently processed (waiting for delete to
-    succeed). Prevents duplicate writes on transient delete failures.
-    """
+    """Skip files with a .processing sidecar to prevent duplicate writes on transient delete failures."""
     date = date or _today()
     try:
         repo = github_store._repo()
@@ -48,7 +36,6 @@ def _list_queue_files(date: str | None = None) -> list[str]:
         if not _QUEUE_RE.match(f.name):
             continue
         if f"{f.name}.processing" in files_in_dir:
-            # Already being handled or recently processed — skip this cycle.
             log.debug("queue_poller: skipping %s (sidecar present)", f.path)
             continue
         out.append(f.path)
@@ -56,7 +43,6 @@ def _list_queue_files(date: str | None = None) -> list[str]:
 
 
 def _write_sidecar(queue_path: str, note: str) -> None:
-    """Best-effort sidecar creation. Non-blocking — failure tolerated."""
     try:
         github_store.write(
             queue_path + ".processing",
@@ -68,7 +54,6 @@ def _write_sidecar(queue_path: str, note: str) -> None:
 
 
 def _delete_sidecar(queue_path: str) -> None:
-    """Best-effort sidecar removal."""
     sidecar = queue_path + ".processing"
     try:
         repo = github_store._repo()
@@ -79,7 +64,6 @@ def _delete_sidecar(queue_path: str) -> None:
 
 
 def _extract_body(content: str) -> str:
-    """Strip the frontmatter block; return the body (the actual drop text)."""
     try:
         meta, body = github_store.parse_metadata(content)
         if meta or body:
@@ -90,23 +74,7 @@ def _extract_body(content: str) -> str:
 
 
 async def process_one(path: str) -> bool:
-    """Read + pipeline + commit a single queue file. Returns True on success.
-
-    v0.5.1 flow (sidecar-protected):
-      1. Read queue file
-      2. If empty/blocked → return False (no sidecar created)
-      3. Write `.processing` sidecar (claims the file across cycles)
-      4. Run pipeline via handle_drop
-      5. On success: delete queue file + delete sidecar (both best-effort)
-      6. On failure: leave sidecar — next cycle will skip until sidecar
-         expires or is manually cleared
-
-    If step 5 partially fails (queue file deleted but sidecar lingers),
-    the file is already gone so no duplicate write is possible. If the
-    queue-file delete fails but sidecar succeeds, next cycle skips thanks
-    to the sidecar. Worst case: stale sidecar + stale queue file; admin
-    cleans manually or via a future `/config_clear_queue_sidecars` command.
-    """
+    """Sidecar-protected: write .processing before pipeline, delete on success; on partial failure next cycle skips via sidecar."""
     content = safe_read(path)
     if not content:
         log.warning("queue_poller: %s missing or blocked", path)
@@ -117,22 +85,20 @@ async def process_one(path: str) -> bool:
         log.warning("queue_poller: %s has empty body", path)
         return False
 
-    # Claim the file before running the pipeline.
     _write_sidecar(path, f"started {_today()}")
 
     try:
         reply = await handle_drop(body)
     except Exception as e:
         log.error("queue_poller: pipeline raised on %s: %s", path, e)
-        _delete_sidecar(path)  # release claim so retry is possible next cycle
+        _delete_sidecar(path)
         return False
 
     if reply.startswith("blocked") or "write failed" in reply:
         log.warning("queue_poller: %s did not commit — keeping: %s", path, reply)
-        _delete_sidecar(path)  # release claim so retry is possible
+        _delete_sidecar(path)
         return False
 
-    # Delete the queue file; on failure leave sidecar so next cycle skips.
     deleted = False
     try:
         repo = github_store._repo()
@@ -154,7 +120,6 @@ async def process_one(path: str) -> bool:
 
 
 async def run_queue_poller(interval_sec: int = _POLL_INTERVAL_SEC) -> None:
-    """Forever-loop poller. Intended to run inside asyncio.gather(...)."""
     log.info("queue_poller: started (interval=%ss)", interval_sec)
     while True:
         try:

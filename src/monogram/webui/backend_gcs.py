@@ -1,12 +1,4 @@
-"""GCS backend — upload encrypted shell to public bucket, stable URL.
-
-Content is encrypted client-side (see encryption_layer.py) so the public
-bucket is safe to serve the ciphertext. The URL is stable (bucket + path
-slug are user-chosen), bookmarkable, home-screen-icon-able.
-
-Requires GOOGLE_APPLICATION_CREDENTIALS in .env pointing at a service
-account JSON with storage.objectAdmin on the configured bucket.
-"""
+"""GCS backend; content is encrypted client-side so the public bucket only serves ciphertext."""
 from __future__ import annotations
 
 import logging
@@ -23,7 +15,7 @@ class GCSBackend(WebUIBackend):
 
     def _get_client(self):
         if self._client is None:
-            # Validate creds BEFORE importing the heavy dep — gives clearer errors.
+            # validate creds before importing the heavy dep for clearer errors
             creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
             if not creds_path or not os.path.exists(creds_path):
                 raise RuntimeError(
@@ -31,7 +23,7 @@ class GCSBackend(WebUIBackend):
                     "See docs/setup/gcp-webui.md."
                 )
             try:
-                from google.cloud import storage  # lazy import — heavy dep
+                from google.cloud import storage  # lazy — heavy dep
             except ImportError as e:
                 raise RuntimeError(
                     "google-cloud-storage not installed. "

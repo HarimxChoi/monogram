@@ -45,7 +45,7 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    # Review fix #2: serial when recording. xdist workers would race on
+    # Serial when recording. xdist workers would race on
     # cassette file writes, losing entries to last-write-wins.
     if config.getoption("--record") and hasattr(config.option, "numprocesses"):
         config.option.numprocesses = 0

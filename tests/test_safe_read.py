@@ -31,6 +31,28 @@ def test_is_blocked_allows_normal_paths(mock_vault_store):
     assert is_blocked("life/shopping.md") is False
 
 
+@pytest.mark.parametrize("path", [
+    "life/credentials/openai.md",
+    "life/./credentials/openai.md",
+    "life/credentials/../credentials/openai.md",
+    "a/../life/credentials/x.md",
+    "life//credentials//x.md",
+    "life/credentials",
+])
+@patch("monogram.vault_config.github_store")
+def test_is_blocked_resists_normalization_bypass(mock_vault_store, path):
+    """A never-read prefix must not be bypassable with ./, .., or // tricks."""
+    mock_vault_store.read.return_value = ""  # defaults -> life/credentials/ blocked
+    assert is_blocked(path) is True, f"bypass leaked: {path}"
+
+
+@pytest.mark.parametrize("path", ["life/credentialsxyz.md", "life/credentials.md"])
+@patch("monogram.vault_config.github_store")
+def test_is_blocked_does_not_overblock_lookalikes(mock_vault_store, path):
+    mock_vault_store.read.return_value = ""
+    assert is_blocked(path) is False
+
+
 @patch("monogram.vault_config.github_store")
 def test_is_blocked_empty_path_is_false(mock_vault_store):
     mock_vault_store.read.return_value = ""

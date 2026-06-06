@@ -1,15 +1,4 @@
-"""Model resolution and API credential routing (v0.4).
-
-`get_model(tier)` reads the user's mono/config.md configuration only.
-No hardcoded model names. No preset defaults (except via endpoint_docs
-for the init wizard's "default Gemini" path).
-
-Fallback chain:
-  1. VaultConfig.llm_models[tier] (or .single if llm_mode=single)
-  2. Legacy MonogramConfig.monogram_model env var (for v0.3 users who
-     haven't re-run init)
-  3. Raise RuntimeError with helpful message
-"""
+"""Model resolution and API credential routing."""
 from __future__ import annotations
 
 import logging
@@ -24,13 +13,6 @@ Tier = Literal["low", "mid", "high"]
 
 
 def get_model(tier: Tier) -> str:
-    """Resolve the litellm model string for this tier.
-
-    - Single mode: ignores tier, returns llm_models['single'].
-    - Tiered mode: returns llm_models[tier].
-    - Legacy: if vault config has no llm_provider set, falls back to
-      MONOGRAM_MODEL env var (returns same string for every tier).
-    """
     vcfg = load_vault_config()
 
     if vcfg.llm_mode == "single":
@@ -51,7 +33,7 @@ def get_model(tier: Tier) -> str:
             f"Run /config_llm_model_{tier} <model-string> or edit config.md."
         )
 
-    # Legacy fallback — v0.3 users who haven't updated config.md
+    # Legacy fallback for v0.3 users who haven't re-run init.
     acfg = load_config()
     legacy = (acfg.monogram_model or "").strip()
     if legacy:
@@ -69,16 +51,7 @@ def get_model(tier: Tier) -> str:
 
 
 def get_vision_model() -> str | None:
-    """Resolve the model string for vision calls.
-
-    Fallback chain:
-      1. VaultConfig.llm_models['vision'] (explicit opt-in for BYO users)
-      2. 'gemini/gemini-2.5-flash' if GEMINI_API_KEY is set
-      3. None → caller should skip vision with a warning, not crash
-
-    Text-only local models (Ollama text-tier qwen/llama/etc) cannot process
-    images; routing an image drop to them would 400 or hallucinate.
-    """
+    # Text-only Ollama models 400 or hallucinate on images; None signals caller to skip.
     vcfg = load_vault_config()
     if vcfg.llm_models.get("vision", "").strip():
         return vcfg.llm_models["vision"].strip()
@@ -91,12 +64,25 @@ def get_vision_model() -> str | None:
     return None
 
 
-def api_credentials(model: str) -> tuple[str | None, str | None]:
-    """Return (api_key, api_base) for a litellm model string.
+def embedding_credentials(model: str) -> tuple[str | None, str | None]:
+    # embedding_base_url is decoupled from chat base_url so chat=cloud + embed=local works.
+    acfg = load_config()
+    vcfg = load_vault_config()
+    prefix = model.split("/", 1)[0]
+    base = (vcfg.embedding_base_url or "").strip() or None
 
-    Routes credentials by the model's provider prefix. Passes api_base for
-    ollama and openai-compat endpoints.
-    """
+    if prefix == "gemini":
+        return (acfg.gemini_api_key or None, None)
+    if prefix == "openai":
+        if base:
+            return (acfg.openai_api_key or "dummy", base)
+        return (acfg.openai_api_key or None, None)
+    if prefix == "ollama":
+        return (None, base or vcfg.llm_base_url or "http://localhost:11434")
+    return (None, base)  # voyage/cohere/jina/etc — litellm reads the key from env
+
+
+def api_credentials(model: str) -> tuple[str | None, str | None]:
     prefix = model.split("/", 1)[0] if "/" in model else model
     acfg = load_config()
     vcfg = load_vault_config()
@@ -108,12 +94,9 @@ def api_credentials(model: str) -> tuple[str | None, str | None]:
         return (acfg.anthropic_api_key or None, None)
     if prefix == "openai":
         if base_url:
-            # openai-compat path (LM Studio, vLLM, LiteLLM proxy) — some
-            # servers require any non-empty key; use "dummy" when no real
-            # key is set since local servers ignore the value.
+            # openai-compat servers (LM Studio, vLLM) ignore key value; "dummy" avoids empty-key rejection.
             return (acfg.openai_api_key or "dummy", base_url)
-        # Real OpenAI — empty key propagates (None) so litellm errors clearly
-        # instead of sending "dummy" to api.openai.com.
+        # Real OpenAI: propagate None so litellm errors clearly instead of sending "dummy".
         return (acfg.openai_api_key or None, None)
     if prefix == "ollama":
         return (None, base_url or "http://localhost:11434")
@@ -121,14 +104,6 @@ def api_credentials(model: str) -> tuple[str | None, str | None]:
 
 
 def validate_llm_config() -> list[str]:
-    """Return list of human-readable errors. Empty list = config is OK.
-
-    Checks ordering:
-      1. Provider set? (else legacy path — check legacy var presence)
-      2. Model strings present for the active mode
-      3. Credentials present for the configured provider
-      4. Mode value sane
-    """
     errors: list[str] = []
     vcfg = load_vault_config()
     acfg = load_config()
@@ -136,16 +111,13 @@ def validate_llm_config() -> list[str]:
     provider = vcfg.llm_provider.strip()
     legacy = (acfg.monogram_model or "").strip()
 
-    # v0.5.1: catch the ambiguous state where both are set.
-    # vault wins, but silently ignoring the user's MONOGRAM_MODEL is worse
-    # than a clear error telling them which to remove.
+    # Warn explicitly: vault wins, but silently ignoring MONOGRAM_MODEL would confuse users.
     if provider and legacy:
         errors.append(
             "Conflicting LLM config: both mono/config.md (llm_provider) and "
             "legacy MONOGRAM_MODEL env var are set. Remove MONOGRAM_MODEL "
             "from .env or clear llm_provider in mono/config.md."
         )
-        # continue — still validate the vault path since it's what get_model() will use
 
     if not provider:
         if not legacy:
@@ -153,7 +125,7 @@ def validate_llm_config() -> list[str]:
                 "No LLM configured. Set llm_provider in mono/config.md "
                 "(or fall back to legacy MONOGRAM_MODEL in .env)."
             )
-        return errors  # legacy path — no further validation possible
+        return errors
 
     if vcfg.llm_mode == "single":
         if not vcfg.llm_models.get("single", "").strip():
@@ -188,7 +160,6 @@ def validate_llm_config() -> list[str]:
 
 
 def validate_webui_config() -> list[str]:
-    """v0.6 — validate web UI settings. Empty list = OK."""
     import os
     errors: list[str] = []
     vcfg = load_vault_config()
@@ -202,7 +173,7 @@ def validate_webui_config() -> list[str]:
         return errors
 
     if mode == "mcp-only":
-        return errors  # no further validation needed
+        return errors
 
     # Password required for gcs and self-host.
     from .encryption_layer import validate_password

@@ -44,10 +44,13 @@ Monogram handles sensitive data on three surfaces:
 
 1. **Credential pipeline** — drops classified as `credential` write to
    `life/credentials/` and must NEVER leak to other paths (drops.md,
-   MEMORY.md, brief, weekly report). Any leak is critical.
+   MEMORY.md, brief, weekly report). Any leak is critical. As a backstop,
+   the Writer passes every staged write except the credential file itself
+   through `secret_filter.redact()` (`src/monogram/secret_filter.py`).
 2. **Prompt injection** — classifier output is used to route writes.
-   Injection that bypasses classifier to write credentials under a
-   benign `target_kind` is critical.
+   Injection that bypasses the classifier to write a credential under a
+   benign `target_kind` is critical — though the `secret_filter` backstop
+   redacts well-known key shapes before any such write lands.
 3. **LLM data exfiltration** — drops may contain private content. A
    path where the full drop is sent to an unintended third-party
    service (e.g., accidental public logging) is high.
@@ -96,6 +99,7 @@ versions should upgrade.
   dependency updates.
 - **Secret scanning**: `gitleaks` pre-release audit.
 - **Credential handling**: hard-coded `life/credentials/` exclusion
-  from LLM context via `safe_read.py` gate.
+  from LLM context via `safe_read.py` gate, plus a writer-level
+  `secret_filter.redact()` backstop on every non-credential write.
 - **Telegram session**: `monogram_session.session` is in `.gitignore`
   and must never be committed.

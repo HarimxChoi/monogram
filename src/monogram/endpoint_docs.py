@@ -1,14 +1,4 @@
-"""Per-endpoint reference — docs URLs, format examples, starter values.
-
-NO specific model names in code except Gemini's `default_starter`, which is
-used solely by the "default (Gemini free tier)" wizard path. Every other
-provider requires the user to enter model strings from the provider's
-current docs.
-
-When a provider releases a new model generation, users edit mono/config.md
-directly or use the /config_llm_model_* bot commands. No Monogram update
-required.
-"""
+"""Provider endpoint reference — docs, format, notes. No model names except Gemini default_starter."""
 from __future__ import annotations
 
 ENDPOINTS: dict[str, dict] = {
@@ -19,9 +9,7 @@ ENDPOINTS: dict[str, dict] = {
             "Free tier at aistudio.google.com — generous limits on the "
             "lite-class model. No billing required for personal use."
         ),
-        # Used ONLY by "default" wizard path for quick-start.
-        # Users can and should edit these in mono/config.md when
-        # Google releases new model generations.
+        # Used only by the "default" wizard path; users update via config.md.
         "default_starter": {
             "low": "gemini/gemini-2.5-flash-lite",
             "mid": "gemini/gemini-2.5-flash",
@@ -63,7 +51,6 @@ LITELLM_REFERENCE_URL = "https://docs.litellm.ai/docs/providers"
 
 
 def format_endpoint_help(provider: str) -> str:
-    """Return a user-facing multi-line string for CLI/bot display."""
     info = ENDPOINTS.get(provider)
     if not info:
         return (

@@ -1,9 +1,4 @@
-"""v0.4b: MCP read-tool implementations.
-
-Pure reads — no writes, no LLM calls. Extracted into this module so
-mcp_server.py stays short. All helpers use safe_read to respect
-life/credentials/ blocking.
-"""
+"""MCP read-tool implementations; all use safe_read to respect life/credentials/ blocking."""
 from __future__ import annotations
 
 import json
@@ -22,9 +17,6 @@ def _yesterday_str() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
-# ── search_wiki ──
-
-
 def _list_wiki_files() -> list[str]:
     try:
         repo = github_store._repo()
@@ -40,10 +32,6 @@ def _list_wiki_files() -> list[str]:
 
 
 async def search_wiki(query: str, limit: int = 10) -> str:
-    """Case-insensitive substring search over wiki/index.md + tag overlap.
-
-    Returns top-N matches as JSON with (slug, summary, tags).
-    """
     query = (query or "").strip().lower()
     if not query:
         return json.dumps({"matches": [], "error": "empty query"})
@@ -62,19 +50,13 @@ async def search_wiki(query: str, limit: int = 10) -> str:
     return json.dumps({"matches": matches[:limit]}, indent=2)
 
 
-# ── query_life ──
-
-
 _LIFE_ENTRY_RE = re.compile(
     r"^## (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) — (.+)$", re.MULTILINE
 )
 
 
 async def query_life(area: str, days: int = 7, limit: int = 20) -> str:
-    """Return recent entries from life/<area>.md within the last N days.
-
-    Credentials area is always blocked.
-    """
+    """Credentials area is unconditionally blocked."""
     area = (area or "").strip().lower()
     if not area:
         return json.dumps({"entries": [], "error": "empty area"})
@@ -93,15 +75,11 @@ async def query_life(area: str, days: int = 7, limit: int = 20) -> str:
         ts_iso = f"{m.group(1)}T{m.group(2)}:00"
         if ts_iso >= since_iso:
             entries.append({"timestamp": f"{m.group(1)} {m.group(2)}", "title": m.group(3).strip()})
-    entries.reverse()  # latest first
+    entries.reverse()
     return json.dumps({"entries": entries[:limit], "area": area}, indent=2)
 
 
-# ── get_morning_brief ──
-
-
 async def get_morning_brief(date: str = "") -> str:
-    """Return daily/<date>/report.md. Defaults to yesterday."""
     date = (date or "").strip() or _yesterday_str()
     content = safe_read(f"daily/{date}/report.md")
     if not content:
@@ -109,17 +87,12 @@ async def get_morning_brief(date: str = "") -> str:
     return content
 
 
-# ── current_project_state ──
-
-
 async def current_project_state(slug: str) -> str:
-    """Return frontmatter + body of projects/<slug>.md."""
     slug = (slug or "").strip().lower()
     if not slug:
         return "Usage: current_project_state(slug=<project-slug>)"
     content = safe_read(f"projects/{slug}.md")
     if not content:
-        # Fall back to archive
         archived = safe_read(f"projects/archive/{slug}.md")
         if archived:
             return f"[archived]\n\n{archived}"
@@ -127,10 +100,6 @@ async def current_project_state(slug: str) -> str:
     return content
 
 
-# ── get_board ──
-
-
 async def get_board() -> str:
-    """Return the current board.md contents."""
     content = safe_read("board.md")
     return content or "board.md not found or empty."

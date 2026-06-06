@@ -1,19 +1,4 @@
-"""Pipeline observability — append-only JSONL trace of every run.
-
-Logs to `log/pipeline.jsonl` in the vault repo. One line per pipeline
-invocation, including blocked / errored runs. Shape:
-
-    {"ts": "2026-04-25T…", "drop_id": "abc123…", "duration_ms": 1234,
-     "stages": ["orchestrator","classifier",…], "escalated": false,
-     "blocked_reason": null, "target_kind": "wiki", "slug": "…",
-     "drop_type": "url", "target_path": "wiki/….md",
-     "target_confidence": "high", "verifier_ok": true,
-     "provider": "gemini", "model_tier_usage": {"low":3,"mid":1,"high":0}}
-
-This is feedstock for the v0.7 eval harness and the morning brief's
-pipeline-health metrics. All failures in this module are silently
-swallowed — observability MUST NOT crash the pipeline.
-"""
+"""Pipeline observability — append-only JSONL trace. All errors swallowed; observability must not crash the pipeline."""
 from __future__ import annotations
 
 import hashlib
@@ -49,34 +34,15 @@ class PipelineRecord:
     verifier_ok: bool | None
     provider: str = ""
     model_tier_usage: dict[str, int] = field(default_factory=dict)
-    # v0.8 Tier 4: per-stage wall-clock latency in milliseconds.
-    # Keys are stage names ("orchestrator", "classifier", "extractor",
-    # "verifier", "writer"). Values are cumulative — if a stage runs
-    # twice (escalation path), both runs are summed.
+    # Cumulative per-stage ms: if a stage runs twice (escalation), both runs are summed.
     stage_latency_ms: dict[str, int] = field(default_factory=dict)
 
     def to_jsonl(self) -> str:
-        """Single-line JSON suitable for append to a .jsonl file."""
         return json.dumps(asdict(self), separators=(",", ":"), ensure_ascii=False)
 
 
 class StageTimer:
-    """Context-manager that records per-stage wall-clock latency.
-
-    Usage:
-        timer = StageTimer()
-        with timer.stage("orchestrator"):
-            plan = await orchestrator.run(payload)
-        ...
-        log_pipeline_run(..., stage_latency_ms=timer.latencies_ms)
-
-    Cumulative — if a stage (e.g., extractor on escalation) runs twice,
-    both runs are summed. That's what dogfood wants: total time spent in
-    each stage, including retries.
-
-    Never raises. If `time.monotonic` somehow fails, emits zero and
-    continues.
-    """
+    """Records per-stage wall-clock ms; never raises."""
 
     def __init__(self) -> None:
         self.latencies_ms: dict[str, int] = {}
@@ -93,22 +59,16 @@ class StageTimer:
                     self.latencies_ms.get(name, 0) + elapsed_ms
                 )
             except Exception:
-                # Observability must not break the pipeline
                 self.latencies_ms.setdefault(name, 0)
 
 
 def drop_id_for(payload: str) -> str:
-    """Deterministic 12-char hex id for the payload.
-
-    Used to correlate multiple log entries for the same drop (e.g. across
-    a retry) without storing the payload itself in the log stream.
-    """
+    """Deterministic 12-char id to correlate log entries without storing the payload."""
     h = hashlib.sha256((payload or "").encode("utf-8")).hexdigest()
     return h[:12]
 
 
 def _safe_get(obj: Any, attr: str, default: Any = None) -> Any:
-    """getattr that tolerates None and weird objects."""
     if obj is None:
         return default
     try:
@@ -128,12 +88,6 @@ def log_pipeline_run(
     blocked_reason: str | None = None,
     stage_latency_ms: dict[str, int] | None = None,
 ) -> None:
-    """Append a single pipeline-run trace to `log/pipeline.jsonl`.
-
-    Swallows all errors — including malformed classification/verification
-    objects, vault-read failures, and github_store.append failures.
-    The pipeline must never fail because of observability.
-    """
     try:
         try:
             provider = _safe_get(load_vault_config(), "llm_provider", "") or ""

@@ -1,16 +1,4 @@
-"""Stage 2 — Classifier. See docs/agents.md §2.
-
-v0.3: drops route to ONE of five kinds via constrained Literal target_kind.
-life_area is a dynamic str validated against VaultConfig.life_categories
-(NOT a Python Literal — categories are user-configurable at runtime via
-mono/config.md).
-
-v0.7 (D1-A): passes agent_tag="classifier" so eval cassette routes calls
-to evals/cassettes/classifier.json.
-
-v0.8 (P6): optional few-shot examples from mono/examples/harvested.jsonl,
-gated by VaultConfig.classifier_few_shot_enabled (default False).
-"""
+"""Stage 2 — Classifier."""
 from __future__ import annotations
 
 import json
@@ -18,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ..llm import complete
 from ..taxonomy import (
@@ -38,23 +26,14 @@ log = logging.getLogger("monogram.classifier")
 
 @dataclass
 class FewShotExample:
-    """A single approved harvest example that the classifier may see."""
     excerpt: str
     target_kind: str
     slug: str
 
 
 def _load_few_shot_examples(path: str, max_count: int) -> list[FewShotExample]:
-    """Load approved few-shot examples from the vault.
+    # Defense-in-depth: filter expired entries even if the daily expirer hasn't run.
 
-    File format: JSONL, one example per line:
-        {"input_excerpt": "...", "target_kind": "wiki", "slug": "...",
-         "approved_at": "2026-04-26T...", "expires_at": "2026-05-26T..."}
-
-    Expired entries are filtered here (defense-in-depth — a scheduled
-    expirer runs daily too, but the production read path shouldn't trust
-    that the file was recently pruned).
-    """
     from datetime import datetime, timezone
     from .. import github_store
 
@@ -84,31 +63,18 @@ def _load_few_shot_examples(path: str, max_count: int) -> list[FewShotExample]:
         excerpt = (d.get("input_excerpt") or "").strip()
         kind = (d.get("target_kind") or "").strip()
         raw_slug = (d.get("slug") or "").strip()
-        # Defense-in-depth: the exemplar file is inside the vault, which
-        # is writable by the user (and any process holding the GitHub PAT).
-        # An attacker who got write access could craft an exemplar with a
-        # forbidden target_kind or a slug containing markdown/prompt
-        # injection. Re-validate both before the string reaches the prompt.
+        # Prompt-injection defense: exemplar file is vault-writable; re-validate before the string reaches the prompt.
         if kind not in TARGET_KINDS:
             continue
         slug = slugify(raw_slug)
         if excerpt and slug:
             out.append(FewShotExample(excerpt=excerpt, target_kind=kind, slug=slug))
 
-    # Cap. Most-recent-first would require approved_at sort; the file is
-    # written in approval order so natural order is recency-approximate.
-    # Return the tail (most-recent) capped at max_count.
+    # File is written in approval order, so tail ≈ most-recent.
     return out[-max_count:] if max_count > 0 else []
 
 
 def _build_system_prompt() -> str:
-    """Build the classifier prompt with the current life_categories from config.
-
-    If vault_config.classifier_few_shot_enabled is True and approved examples
-    exist, append them as few-shot anchors. On any load failure, fall back
-    to zero-shot (log warning). Production should never fail because of an
-    optional improvement signal.
-    """
     cfg = load_vault_config()
     life_list = ", ".join(cfg.life_categories) or "(none configured)"
     base = f"""You are the classifier stage of Monogram's pipeline.
@@ -161,7 +127,6 @@ HARD CONSTRAINTS:
 Output valid JSON matching the Classification schema.
 """
 
-    # Track B (P6+): append few-shot examples if enabled and available.
     if cfg.classifier_few_shot_enabled:
         try:
             examples = _load_few_shot_examples(
@@ -177,8 +142,6 @@ Output valid JSON matching the Classification schema.
         if examples:
             shots = "\nHigh-confidence examples from prior classifications:\n"
             for ex in examples:
-                # Truncate excerpt to keep prompt bounded — 120 chars is
-                # plenty to anchor the pattern.
                 excerpt = ex.excerpt[:120]
                 shots += f'  "{excerpt}" → target_kind={ex.target_kind}, slug={ex.slug}\n'
             base += shots
@@ -213,37 +176,43 @@ class Classification(BaseModel):
 
 
 async def run(payload: str, plan: PipelinePlan) -> Classification:
-    """Classify a payload, normalizing LLM output before validation."""
     system = _build_system_prompt()
     prompt = f"Payload:\n{payload}\n\nPlan: {plan.model_dump_json()}"
-    raw = await complete(
-        prompt=prompt,
-        system=system,
-        response_format=Classification,
-        agent_tag="classifier",
+    for attempt in range(2):
+        raw = await complete(
+            prompt=prompt,
+            system=system,
+            response_format=Classification,
+            temperature=0.3 if attempt == 0 else 0.7,
+            agent_tag="classifier",
+        )
+        try:
+            data = json.loads(raw)
+            data["drop_type"] = normalize_literal(
+                data.get("drop_type"), DROP_TYPES, "ambiguous"
+            )
+            data["target_kind"] = normalize_literal(
+                data.get("target_kind"), TARGET_KINDS, "daily_only"
+            )
+            if data["target_kind"] == "life":
+                coerced = normalize_life_area(data.get("life_area"))
+                data["target_kind"] = "daily_only" if coerced is None else "life"  # unroutable life_area → demote
+                data["life_area"] = coerced
+            else:
+                data["life_area"] = None
+            data["confidence"] = normalize_literal(
+                data.get("confidence"), CONFIDENCE_LEVELS, "medium"
+            )
+            data["slug"] = slugify(data.get("slug") or "untitled")
+            return Classification.model_validate(data)
+        except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as e:
+            log.warning("classifier: invalid output (attempt %d/2): %s", attempt + 1, e)
+    log.error("classifier: parse failed twice; routing to daily_only")
+    return Classification(
+        drop_type="ambiguous",
+        target_kind="daily_only",
+        slug="untitled",
+        confidence="low",
+        tags=[],
+        reasoning="classifier parse failed; safe fallback",
     )
-    data = json.loads(raw)
-
-    data["drop_type"] = normalize_literal(data.get("drop_type"), DROP_TYPES, "ambiguous")
-    data["target_kind"] = normalize_literal(
-        data.get("target_kind"), TARGET_KINDS, "daily_only"
-    )
-
-    if data["target_kind"] == "life":
-        coerced = normalize_life_area(data.get("life_area"))
-        if coerced is None:
-            # LLM said "life" but life_area can't be routed — demote to daily_only
-            data["target_kind"] = "daily_only"
-            data["life_area"] = None
-        else:
-            data["life_area"] = coerced
-    else:
-        # Non-life kinds never carry life_area
-        data["life_area"] = None
-
-    data["confidence"] = normalize_literal(
-        data.get("confidence"), CONFIDENCE_LEVELS, "medium"
-    )
-    data["slug"] = slugify(data.get("slug") or "untitled")
-
-    return Classification.model_validate(data)

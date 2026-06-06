@@ -1,47 +1,68 @@
-"""LLM wrapper — single entry point for all model calls.
-
-Design (see docs/architecture.md for sources):
-- Provider-agnostic via litellm.
-- Pydantic-first structured extraction via provider-native structured-output.
-- Usage logged per call (tokens / model) so cost + audit work downstream.
-- v0.3b: auto-injects VaultConfig.primary_language into every system prompt
-  so free-form LLM output (reasoning, titles, summaries, brief bodies) is
-  written in the user's language. Enum/Literal values, slugs, YAML keys,
-  and paths stay English.
-- v0.7 (D1-A): optional `agent_tag` parameter threads an identifier into a
-  ContextVar that eval-layer code can read to route cassette replays per
-  agent. Production code passes "classifier" / "extractor" / "verifier" /
-  "orchestrator"; the tag is stripped before the litellm call — it never
-  crosses the provider boundary. When eval is not installed or not running,
-  the tag is a no-op.
-"""
+"""LLM wrapper — single entry point for all model calls."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from contextvars import ContextVar
+from functools import cache
 from typing import Type, TypeVar
 
 import litellm
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .config import load_config
 
 log = logging.getLogger("monogram.llm")
 
-_config = load_config()
+
+@cache
+def _cfg():
+    # Lazy import so tests/--help/MCP don't require a valid .env at import time.
+    return load_config()
+
+
 T = TypeVar("T", bound=BaseModel)
 
 
-# ─── Public: eval layer reads this ContextVar ────────────────────────────
-#
-# Agent modules pass agent_tag="classifier" etc. to complete/extract/
-# complete_vision. This sets the ContextVar for the duration of the call.
-# evals/cassette.py reads `current_agent_tag.get()` to decide which
-# per-agent cassette file to route a given litellm call to.
-#
-# Production never reads this — the shim only exists in test/eval context.
-# Default None means "no agent context" — cassette falls through to _misc.
+_RETRY_DELAYS = (1.0, 3.0, 7.0)
+
+
+def _is_transient(exc: Exception) -> bool:
+    name = type(exc).__name__
+    if name in {
+        "RateLimitError", "ServiceUnavailableError", "InternalServerError",
+        "APIConnectionError", "Timeout", "APIError",
+    }:
+        return True
+    if getattr(exc, "status_code", None) in {408, 429, 500, 502, 503, 504}:
+        return True
+    msg = str(exc).lower()
+    return any(t in msg for t in (
+        "overload", "rate limit", "service unavailable",
+        "503", "504", "429", "timeout",
+    ))
+
+
+async def _acompletion_with_retry(kwargs: dict, model_name: str):
+    last_exc: Exception | None = None
+    for attempt, delay in enumerate(_RETRY_DELAYS):
+        try:
+            return await litellm.acompletion(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            last_exc = e
+            if not _is_transient(e) or attempt + 1 >= len(_RETRY_DELAYS):
+                raise
+            log.warning(
+                "llm: %s on attempt %d/%d (model=%s); retrying in %.1fs",
+                type(e).__name__, attempt + 1, len(_RETRY_DELAYS), model_name, delay,
+            )
+            await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
+# Eval-only: evals/cassette.py reads this to route per-agent cassettes; production ignores it.
 current_agent_tag: ContextVar[str | None] = ContextVar(
     "monogram_agent_tag", default=None
 )
@@ -67,10 +88,7 @@ _LANGUAGE_NAMES = {
 
 
 def _language_instruction(language: str) -> str:
-    """Return a language directive to prepend to system prompts.
-
-    Empty string for English (default) — zero token overhead for the common case.
-    """
+    # Empty string for English — zero token overhead for the common case.
     if language == "en" or not language:
         return ""
     name = _LANGUAGE_NAMES.get(language, language)
@@ -92,11 +110,7 @@ def _language_instruction(language: str) -> str:
 
 
 def _apply_language(system: str | None) -> str | None:
-    """Prepend language directive to a system prompt. Safe to call with None.
-
-    Lazily imports VaultConfig to avoid circular-import issues if llm is
-    imported before vault_config is ready.
-    """
+    # Lazy import to avoid circular-import if llm is loaded before vault_config.
     try:
         from .vault_config import load_vault_config
         cfg = load_vault_config()
@@ -111,7 +125,7 @@ def _apply_language(system: str | None) -> str | None:
 
 
 def _credentials_for(model: str) -> tuple[str | None, str | None]:
-    """Lazy wrapper around models.api_credentials to avoid circular import."""
+    # Lazy import to avoid circular dependency (models imports llm).
     from .models import api_credentials
     return api_credentials(model)
 
@@ -139,15 +153,7 @@ async def complete(
     max_output_tokens: int | None = None,
     agent_tag: str | None = None,
 ) -> str:
-    """Text completion. Returns raw string content.
-
-    Auto-injects VaultConfig.primary_language directive into the system prompt.
-
-    `agent_tag` (optional): identifier like "classifier" or "extractor". Sets
-    a ContextVar for the duration of the call so the eval cassette shim can
-    route to per-agent cassette files. The tag is NOT forwarded to litellm.
-    """
-    chosen = model or _config.monogram_model
+    chosen = model or _cfg().monogram_model
     system = _apply_language(system)
 
     messages: list[dict] = []
@@ -172,12 +178,13 @@ async def complete(
 
     token = current_agent_tag.set(agent_tag) if agent_tag is not None else None
     try:
-        response = await litellm.acompletion(**kwargs)
+        response = await _acompletion_with_retry(kwargs, chosen)
     finally:
         if token is not None:
             current_agent_tag.reset(token)
     _log_usage(response, chosen)
-    return response.choices[0].message.content
+    # content is None on provider safety-filter block; "" is safer downstream.
+    return response.choices[0].message.content or ""
 
 
 async def extract(
@@ -189,19 +196,24 @@ async def extract(
     temperature: float = 0.1,
     agent_tag: str | None = None,
 ) -> T:
-    """Structured extraction — validated Pydantic instance via native schema mode.
-
-    `agent_tag` is passed through to `complete()`; see its docstring.
-    """
-    raw = await complete(
-        prompt,
-        system=system,
-        model=model,
-        temperature=temperature,
-        response_format=schema,
-        agent_tag=agent_tag,
-    )
-    return schema.model_validate_json(raw)
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        raw = await complete(
+            prompt,
+            system=system,
+            model=model,
+            # Vary temperature on retry so a deterministic bad parse can differ.
+            temperature=temperature if attempt == 0 else max(temperature, 0.5),
+            response_format=schema,
+            agent_tag=agent_tag,
+        )
+        try:
+            return schema.model_validate_json(raw)
+        except ValidationError as e:
+            last_exc = e
+            log.warning("llm.extract: validation failed (attempt %d/2): %s", attempt + 1, e)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def complete_vision(
@@ -213,13 +225,7 @@ async def complete_vision(
     temperature: float = 0.3,
     agent_tag: str | None = None,
 ) -> str:
-    """Multimodal call. Returns raw text. Language directive applied to system-role
-    message would help, but vision calls here have no system prompt by convention;
-    the vision prompt itself should mention language if needed.
-
-    `agent_tag` routes cassette for eval. See `complete()` docstring.
-    """
-    chosen = model or _config.monogram_model
+    chosen = model or _cfg().monogram_model
     b64 = base64.b64encode(image_bytes).decode()
     api_key, api_base = _credentials_for(chosen)
     vision_kwargs: dict = {
@@ -245,9 +251,9 @@ async def complete_vision(
 
     token = current_agent_tag.set(agent_tag) if agent_tag is not None else None
     try:
-        response = await litellm.acompletion(**vision_kwargs)
+        response = await _acompletion_with_retry(vision_kwargs, chosen)
     finally:
         if token is not None:
             current_agent_tag.reset(token)
     _log_usage(response, chosen)
-    return response.choices[0].message.content
+    return response.choices[0].message.content or ""

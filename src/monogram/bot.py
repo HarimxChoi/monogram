@@ -1,9 +1,4 @@
-"""C4 — aiogram bot handlers.
-
-/start, /status, and free-form messages all route through the pipeline.
-v0.4: /config_llm_* commands registered via bot_config_cmds router.
-      /approve_<token> and /deny_<token> for MCP-gated writes.
-"""
+"""Aiogram bot handlers: /start, /status, free-form drops, and MCP-gated /approve|deny."""
 from __future__ import annotations
 
 import re
@@ -20,19 +15,15 @@ config = load_config()
 bot = Bot(token=config.telegram_bot_token)
 dp = Dispatcher()
 
-# v0.4: register /config_llm_* command router
 from .bot_config_cmds import router as _config_router  # noqa: E402
 dp.include_router(_config_router)
 
-# v0.6: register /webui and /config_webui_* command router
 from .bot_webui_cmds import router as _webui_router  # noqa: E402
 dp.include_router(_webui_router)
 
-# v0.7: register /eval_* command router (kill-switch + few-shot)
 from .bot_eval_cmds import router as _eval_router  # noqa: E402
 dp.include_router(_eval_router)
 
-# v0.8: register /stats command router (pipeline health from phone)
 from .bot_stats_cmd import router as _stats_router  # noqa: E402
 dp.include_router(_stats_router)
 
@@ -79,15 +70,38 @@ async def cmd_revive(msg: Message):
     await msg.answer(moved, parse_mode="Markdown")
 
 
-# v0.5.1: tokens are now secrets.token_urlsafe(16) → URL-safe base64
-# alphabet [A-Za-z0-9_-], length ~22. Old v0.4 tests used 8-char hex —
-# the regex must accept both for backward compat with any stale tokens.
+@dp.message(Command("search"))
+async def cmd_search(msg: Message):
+    """Hybrid semantic + lexical search over the vault: `/search how do I deploy`."""
+    if msg.from_user.id != config.telegram_user_id:
+        return
+    query = re.sub(r"^/search(@\w+)?\s*", "", msg.text or "", count=1).strip()
+    if not query:
+        await msg.answer("Usage: /search <query>")
+        return
+    from .semantic_index import semantic_search
+    try:
+        hits = await semantic_search(query, k=8)
+    except Exception as e:
+        await msg.answer(f"search failed: {e}")
+        return
+    if not hits:
+        await msg.answer("No matches. If the index is empty, run `monogram reindex`.")
+        return
+    # No parse_mode: excerpts contain arbitrary markdown chars.
+    lines = [f"🔎 {query}"]
+    for i, h in enumerate(hits, 1):
+        head = f" — {h['heading']}" if h.get("heading") else ""
+        lines.append(f"\n{i}. {h['path']}{head}\n   {h.get('excerpt', '')[:160]}")
+    await msg.answer("".join(lines)[:4000])
+
+
+# Regex accepts 8-64 chars to handle both 22-char urlsafe tokens and legacy 8-char hex stale tokens.
 _APPROVE_RE = re.compile(r"^/approve_([A-Za-z0-9_-]{8,64})(?:\s|$)")
 _DENY_RE = re.compile(r"^/deny_([A-Za-z0-9_-]{8,64})(?:\s|$)")
 
 
 async def _execute_pending(entry, msg: Message) -> None:
-    """Dispatch pending entry by kind — writes to the vault."""
     if entry.kind == "set_llm_config":
         from .bot_config_cmds import (
             _read_meta_and_body,
@@ -120,7 +134,6 @@ async def handle_any(msg: Message):
 
     text = (msg.text or "").strip()
 
-    # /approve_<token> — MCP pending first, then v0.7 harvest pending
     m = _APPROVE_RE.match(text)
     if m:
         token = m.group(1)
@@ -129,8 +142,6 @@ async def handle_any(msg: Message):
         if entry is not None:
             await _execute_pending(entry, msg)
             return
-        # Fall back to Track-A harvest pending (24h TTL).
-        # Only registered when .[eval] extras are installed.
         try:
             from evals.harvest import accept_pending as _accept_harvest
             ok, reply = _accept_harvest(token)
@@ -142,7 +153,6 @@ async def handle_any(msg: Message):
         await msg.answer("Token expired or not found.")
         return
 
-    # /deny_<token> — same two-store lookup
     m = _DENY_RE.match(text)
     if m:
         token = m.group(1)
@@ -162,15 +172,12 @@ async def handle_any(msg: Message):
         await msg.answer("Token expired or not found.")
         return
 
-    # Otherwise, treat as a drop
     reply = await handle_drop(text)
     await msg.answer(reply, parse_mode="Markdown")
 
 
 def _extract_slug(text: str | None) -> str | None:
-    """Parse '/done paper-a' → 'paper-a'. Whole argument is slugified so
-    '/done Paper A' → 'paper-a' also works; user sees 'not found' if the
-    slugified result doesn't match any project file."""
+    """Parse '/done paper-a' → 'paper-a'; slugifies so '/done Paper A' also works."""
     if not text:
         return None
     parts = text.strip().split(maxsplit=1)
@@ -181,7 +188,6 @@ def _extract_slug(text: str | None) -> str | None:
 
 
 def _move_project(slug: str, *, to_archive: bool) -> str:
-    """Atomic rename + status flip. Returns a user-visible reply string."""
     from_dir, to_dir, new_status = (
         ("projects", "projects/archive", "done")
         if to_archive
@@ -200,7 +206,6 @@ def _move_project(slug: str, *, to_archive: bool) -> str:
     ):
         return f"failed to write `{dst}`"
 
-    # Delete source
     try:
         repo = github_store._repo()
         src_file = repo.get_contents(src)
@@ -212,7 +217,6 @@ def _move_project(slug: str, *, to_archive: bool) -> str:
 
 
 def _flip_status_frontmatter(content: str, new_status: str) -> str:
-    """Rewrite `status:` line in the YAML frontmatter, preserving everything else."""
     if not content.startswith("---"):
         return f"---\nstatus: {new_status}\n---\n\n{content}"
     lines = content.split("\n")
@@ -220,7 +224,6 @@ def _flip_status_frontmatter(content: str, new_status: str) -> str:
         if line.startswith("status:"):
             lines[i] = f"status: {new_status}"
             return "\n".join(lines)
-    # No status line yet — insert before the closing `---`
     for i in range(1, len(lines)):
         if lines[i].strip() == "---":
             lines.insert(i, f"status: {new_status}")
@@ -229,18 +232,11 @@ def _flip_status_frontmatter(content: str, new_status: str) -> str:
 
 
 async def send_reply(user_id: int, text: str):
-    """Called by listener to push drop confirmations into bot chat."""
     await bot.send_message(user_id, text, parse_mode="Markdown")
 
 
 async def push_text(text: str, chunk_size: int = 3800) -> None:
-    """One-shot push of arbitrary text to the configured user.
-
-    Used by scheduled jobs (morning/weekly/digest) which run outside the
-    long-polling loop. Creates a dedicated Bot instance so the session is
-    closed cleanly when the coroutine exits — a naked `bot.send_message()`
-    from cron leaves aiogram's aiohttp session open and the loop hangs.
-    """
+    """Used by cron jobs; creates a fresh Bot so aiohttp session closes cleanly (naked bot.send_message hangs the loop)."""
     from aiogram.client.bot import Bot as AiogramBot
 
     text = text or "(empty message)"
@@ -249,7 +245,7 @@ async def push_text(text: str, chunk_size: int = 3800) -> None:
             await one_shot.send_message(
                 config.telegram_user_id,
                 text[i : i + chunk_size],
-                parse_mode=None,  # plain text — briefs may contain un-escaped markdown
+                parse_mode=None,  # briefs may contain un-escaped markdown
             )
 
 

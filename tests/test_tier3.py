@@ -297,45 +297,35 @@ class TestOfficeURLs:
 
 
 # ---------------------------------------------------------------------------
-# hwp: version parsing + minimal_env secrets-stripping
+# hwp: rhwp-python direct extraction (graceful degradation + size cap)
 # ---------------------------------------------------------------------------
 
-class TestHWPHardening:
-    def test_minimal_env_strips_secrets(self):
-        from monogram.ingestion.hwp import _minimal_env
+class TestHWP:
+    def test_is_hwp_detects_hwp_and_hwpx(self):
+        from monogram.ingestion.base import is_hwp
 
-        with patch.dict(os.environ, {
-            "PATH": "/usr/bin:/bin",
-            "GITHUB_PAT": "ghp_secret_token",
-            "TELEGRAM_BOT_TOKEN": "bot_secret",
-            "GEMINI_API_KEY": "gemini_secret",
-            "AWS_ACCESS_KEY_ID": "aws_secret",
-            "HOME": "/home/user",
-        }):
-            env = _minimal_env()
+        assert is_hwp("https://example.com/report.hwp")
+        assert is_hwp("https://example.com/REPORT.HWPX")
+        assert not is_hwp("https://example.com/paper.pdf")
+        assert not is_hwp("https://example.com/page.html")
 
-        # Secrets MUST NOT be present
-        assert "GITHUB_PAT" not in env
-        assert "TELEGRAM_BOT_TOKEN" not in env
-        assert "GEMINI_API_KEY" not in env
-        assert "AWS_ACCESS_KEY_ID" not in env
+    def test_extract_graceful_without_rhwp(self):
+        """If rhwp-python isn't installed (or bytes are invalid), return a
+        failed result rather than crashing the drop."""
+        import asyncio
 
-        # Only essentials present
-        assert env.get("PATH") == "/usr/bin:/bin"
-        # HOME is overridden to /tmp (not the real home)
-        assert env.get("HOME") == "/tmp"
+        from monogram.ingestion.hwp import extract_from_bytes
 
-    def test_minimal_env_with_custom_home(self, tmp_path):
-        from monogram.ingestion.hwp import _minimal_env
+        result = asyncio.run(extract_from_bytes(b"not a real hwp", filename="x.hwp"))
+        assert result.success is False
+        assert result.source_type == "hwp"
 
-        env = _minimal_env(home=tmp_path)
-        assert env["HOME"] == str(tmp_path)
+    def test_size_cap_rejects_oversized(self):
+        import asyncio
 
-    def test_version_check_triggers_below_min(self):
-        """Sanity: _MIN_LIBREOFFICE is set to the 2024-12425 patched line."""
-        from monogram.ingestion.hwp import _MIN_LIBREOFFICE
+        from monogram.ingestion.hwp import _MAX_INPUT_BYTES, extract_from_bytes
 
-        assert _MIN_LIBREOFFICE >= (25, 2, 1), (
-            "CVE-2024-12425/12426 requires LibreOffice >= 25.2.1. "
-            "Do not weaken this check."
-        )
+        oversized = b"\x00" * (_MAX_INPUT_BYTES + 1)
+        result = asyncio.run(extract_from_bytes(oversized, filename="big.hwp"))
+        assert result.success is False
+        assert result.extraction_method == "size_cap_exceeded"

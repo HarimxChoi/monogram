@@ -1,26 +1,8 @@
-"""YouTube extractor — transcript via `youtube-transcript-api`,
-metadata via `yt-dlp` (no download).
+"""YouTube extractor — transcript via youtube-transcript-api v1.x, metadata via yt-dlp.
 
-IMPORTANT — youtube-transcript-api v1.0 BREAKING CHANGE:
-The old `YouTubeTranscriptApi.get_transcript(video_id)` is DEPRECATED
-since v1.0.0 and REMOVED in recent versions. New API:
-
-    ytt_api = YouTubeTranscriptApi()
-    fetched = ytt_api.fetch(video_id)                   # primary
-    # or for language selection:
-    fetched = ytt_api.list(video_id).find_transcript(["en", "ko"]).fetch()
-
-Reference: https://pypi.org/project/youtube-transcript-api/
-
-Whisper fallback is opt-in (`youtube_whisper_fallback: true` in config)
-because:
-  1. Whisper is CPU/GPU-heavy (5-30s per minute of video)
-  2. It downloads audio (bandwidth cost)
-  3. Transcript API covers >90% of cases
-
-YouTube-side changes happen ~monthly (SABR playback, signature
-extraction, PoTokenRequired errors). Keep yt-dlp on the stable channel
-and be prepared for 1-2 day gaps between breakage and fix.
+youtube-transcript-api v1.0 BREAKING CHANGE: static get_transcript() removed; use
+YouTubeTranscriptApi().fetch(video_id) or .list().find_transcript().fetch().
+Whisper fallback is opt-in because it is CPU-heavy and downloads audio.
 """
 from __future__ import annotations
 
@@ -44,7 +26,6 @@ def parse_video_id(url: str) -> str | None:
 
 
 async def extract(url: str) -> ExtractionResult:
-    """Extract a YouTube video's transcript + metadata."""
     video_id = parse_video_id(url)
     if not video_id:
         return ExtractionResult(
@@ -56,10 +37,8 @@ async def extract(url: str) -> ExtractionResult:
             warning="invalid_video_id",
         )
 
-    # Fetch metadata (lightweight, no transcript yet)
     metadata = await _fetch_metadata(url)
 
-    # Fetch transcript (primary path)
     transcript_text = await _fetch_transcript(video_id)
     if transcript_text:
         return ExtractionResult(
@@ -70,7 +49,6 @@ async def extract(url: str) -> ExtractionResult:
             extraction_method="transcript",
         )
 
-    # Transcript unavailable — check if Whisper fallback is opted-in
     if await _is_whisper_enabled():
         whisper_text = await _whisper_fallback(url)
         if whisper_text:
@@ -83,7 +61,6 @@ async def extract(url: str) -> ExtractionResult:
                 warning="transcript_unavailable_used_whisper",
             )
 
-    # Degraded: metadata only
     title = metadata.get("title", "")
     description = metadata.get("description", "")
     text = (
@@ -103,8 +80,6 @@ async def extract(url: str) -> ExtractionResult:
 
 
 async def _fetch_metadata(url: str) -> dict:
-    """yt-dlp metadata-only extraction. Synchronous API wrapped in a
-    thread to avoid blocking the event loop."""
     def _sync() -> dict:
         try:
             import yt_dlp
@@ -137,10 +112,6 @@ async def _fetch_metadata(url: str) -> dict:
 
 
 async def _fetch_transcript(video_id: str) -> str | None:
-    """Fetch transcript via youtube-transcript-api v1.x API.
-
-    Returns concatenated text, or None if unavailable.
-    """
     def _sync() -> str | None:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
@@ -148,11 +119,10 @@ async def _fetch_transcript(video_id: str) -> str | None:
             log.debug("youtube-transcript-api not installed")
             return None
 
-        # v1.0+ API: YouTubeTranscriptApi() instance with .fetch()
         try:
             ytt = YouTubeTranscriptApi()
         except TypeError:
-            # Older pre-1.0 versions had the old static API — try that
+            # pre-1.0 versions used the old static API
             try:
                 raw = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "ko"])  # type: ignore
                 return " ".join(entry.get("text", "") for entry in raw)
@@ -161,7 +131,6 @@ async def _fetch_transcript(video_id: str) -> str | None:
                 return None
 
         try:
-            # Prefer explicit language selection; fall back to default
             try:
                 fetched = ytt.list(video_id).find_transcript(["en", "ko"]).fetch()
             except Exception:
@@ -170,7 +139,7 @@ async def _fetch_transcript(video_id: str) -> str | None:
             log.debug("transcript fetch failed for %s: %s", video_id, e)
             return None
 
-        # FetchedTranscript has .snippets attr OR iterable of snippets
+        # FetchedTranscript: .snippets attr OR iterable depending on version
         snippets = getattr(fetched, "snippets", None) or list(fetched)
         parts = []
         for s in snippets:
@@ -183,7 +152,6 @@ async def _fetch_transcript(video_id: str) -> str | None:
 
 
 async def _is_whisper_enabled() -> bool:
-    """Check vault config for opt-in Whisper fallback."""
     try:
         from ..vault_config import load_vault_config
         cfg = load_vault_config()
@@ -193,20 +161,12 @@ async def _is_whisper_enabled() -> bool:
 
 
 async def _whisper_fallback(url: str) -> str | None:
-    """Whisper fallback — download audio via yt-dlp + transcribe.
-
-    Stub: returns None unless whisper package is importable and
-    yt-dlp is configured. Real implementation at v0.8.1 if demand
-    justifies the complexity.
-    """
+    """Stub — not yet implemented; returns None until demand justifies complexity."""
     try:
         import whisper  # type: ignore  # noqa: F401
     except ImportError:
         log.info("whisper fallback requested but openai-whisper not installed")
         return None
 
-    # Not implementing full Whisper pipeline in this pass — scaffolding
-    # for future buildout. Returns None so caller falls through to
-    # metadata-only path.
     log.info("whisper fallback stub — not yet implemented for %s", url)
     return None

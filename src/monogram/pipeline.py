@@ -1,11 +1,4 @@
-"""5-stage pipeline runner. See docs/agents.md §6 for escalation flow.
-
-Chains: Orchestrator → Classifier → Extractor → Verifier → Writer.
-Reads existing context (target file + MEMORY.md) for verification.
-Returns a PipelineResult containing a FileChange with ALL writes staged.
-No git side-effect — the actual commit happens in listener/bot via
-github_store.write_multi().
-"""
+"""5-stage pipeline runner. No git side-effect — commit happens via github_store.write_multi()."""
 from __future__ import annotations
 
 import time
@@ -28,26 +21,55 @@ class PipelineResult:
 
 
 async def run_pipeline(payload: str) -> PipelineResult:
-    """Run the full 5-stage pipeline on a raw payload string.
-
-    Reads existing context from the scheduler repo so the Verifier can
-    actually check for contradictions. Writer produces ALL writes
-    (stable target + drops.md + MEMORY.md + decisions.md).
-
-    Always emits a pipeline-trace line via log_pipeline_run, including for
-    blocked/escalated paths. Observability MUST NOT crash the pipeline
-    (see pipeline_log for swallowing guarantees).
-    """
     start = time.monotonic()
     stages: list[str] = []
     classification = None
     verification = None
     escalated = False
     result: PipelineResult | None = None
-    # v0.8 Tier 4: per-stage wall-clock timer
     timer = StageTimer()
 
     try:
+        # Credential quarantine: short-circuit before any LLM call so secret never crosses the provider.
+        from .secret_filter import classify_secret
+
+        cred_slug = classify_secret(payload)
+        if cred_slug is not None:
+            from datetime import datetime, timezone
+
+            from .agents.classifier import Classification
+            from .agents.extractor import CredentialEntry
+            from .agents.verifier import VerifyResult
+
+            classification = Classification(
+                drop_type="credential",
+                target_kind="credential",
+                slug=cred_slug,
+                confidence="high",
+                tags=[],
+                reasoning="pre-LLM secret-shape match (no LLM call)",
+            )
+            verification = VerifyResult(
+                ok=True,
+                target_confidence="high",
+                escalate=False,
+                reasoning="credential quarantined pre-LLM",
+            )
+            extraction = CredentialEntry(
+                label=cred_slug.replace("-", " "), body=payload.strip()
+            )
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            file_change = await writer.run(
+                extraction,
+                verification,
+                classification,
+                existing_drops=safe_read(f"daily/{today}/drops.md"),
+                existing_decisions=safe_read("log/decisions.md"),
+            )
+            stages.append("credential_gate")
+            result = PipelineResult(file_change=file_change, stages_executed=stages)
+            return result
+
         with timer.stage("orchestrator"):
             plan = await orchestrator.run(payload)
         stages.append("orchestrator")
@@ -56,9 +78,7 @@ async def run_pipeline(payload: str) -> PipelineResult:
             classification = await classifier.run(payload, plan)
         stages.append("classifier")
 
-        # Read existing context for verification + writing.
-        # Use safe_read so life/credentials/* is blocked even if the LLM ever
-        # pointed us there (defense in depth — should not happen, but cheap).
+        # safe_read blocks life/credentials/* even if LLM misdirects (defense-in-depth).
         target_content = (
             safe_read(classification.target_path)
             if classification.target_path
@@ -109,13 +129,11 @@ async def run_pipeline(payload: str) -> PipelineResult:
             )
             return result
 
-        # Read existing append-target files for the Writer
         from datetime import datetime, timezone
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         existing_drops = safe_read(f"daily/{today}/drops.md")
         existing_decisions = safe_read("log/decisions.md")
-        # wiki/index.md — only needed for wiki-kind drops, but cheap to always read
         existing_wiki_index = (
             safe_read("wiki/index.md")
             if classification.target_kind == "wiki"
@@ -142,9 +160,7 @@ async def run_pipeline(payload: str) -> PipelineResult:
         )
         return result
     finally:
-        # Best-effort trace for evals + dogfood observability. Captures
-        # happy + blocked + raised paths equally. Exceptions inside
-        # log_pipeline_run are swallowed by the logger itself.
+        # Best-effort trace: captures happy, blocked, and raised paths equally.
         duration_ms = int((time.monotonic() - start) * 1000)
         log_pipeline_run(
             payload=payload,

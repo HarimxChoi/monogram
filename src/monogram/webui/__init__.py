@@ -1,38 +1,28 @@
-"""v0.6 — Web UI backends.
-
-Three delivery modes share a single ABC interface:
-- gcs         : upload to GCP Cloud Storage (stable URL)
-- self-host   : aiohttp behind cloudflared quick tunnel (rotating URL)
-- mcp-only    : no web UI; caller is expected to use MCP clients
-
-Mode is read from VaultConfig.webui_mode, runtime-switchable via
-/config_webui_mode.
-"""
+"""Web UI backends (gcs/self-host/mcp-only); mode from VaultConfig.webui_mode."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
 
 class WebUIDisabledError(RuntimeError):
-    """Raised when webui_mode=mcp-only and something attempts to publish."""
+    """Raised when webui_mode=mcp-only and publish is attempted."""
 
 
 class WebUIBackend(ABC):
     @abstractmethod
     async def publish(self, encrypted_html: bytes) -> str:
-        """Publish the encrypted shell. Return the URL."""
+        """Publish encrypted shell; return URL."""
 
     @abstractmethod
     async def current_url(self) -> str | None:
-        """Return the current URL if valid, else None."""
+        """Return current URL if valid, else None."""
 
     @abstractmethod
     async def teardown(self) -> None:
-        """Clean up resources (tunnel process, etc.)."""
+        """Clean up resources."""
 
 
 def get_active_backend() -> WebUIBackend:
-    """Return an instance of the backend configured in mono/config.md."""
     from ..vault_config import load_vault_config
     cfg = load_vault_config()
     mode = cfg.webui_mode or "mcp-only"

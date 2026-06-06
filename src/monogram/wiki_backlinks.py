@@ -1,11 +1,4 @@
-"""Wiki backlinks — tag-overlap peer discovery.
-
-When a new wiki entry is written, find up to 5 existing entries whose tags
-overlap with the new one's tags, and add `[[new_slug]]` as a backlink to
-their "## Related" section. The cap prevents fan-out explosion for common
-tags — if a vault has 50 entries tagged [ml-cv] and we add another, we
-only touch the top-5 by overlap count.
-"""
+"""Wiki backlinks — capped at 5 peers to prevent fan-out explosion on common tags."""
 from __future__ import annotations
 
 import re
@@ -30,7 +23,6 @@ class IndexEntry:
 
 
 def _parse_index(index_content: str) -> list[IndexEntry]:
-    """Parse wiki/index.md lines into [(slug, tags), ...]."""
     entries = []
     for match in _INDEX_LINE_RE.finditer(index_content):
         slug, _summary, tags_str = match.groups()
@@ -44,8 +36,7 @@ def find_peers(
     new_tags: list[str],
     index_content: str,
 ) -> list[str]:
-    """Return up to 5 existing slugs with overlapping tags, sorted by
-    (overlap_count desc, slug asc) for stability."""
+    """Sorted by (overlap_count desc, slug asc) for stable ordering."""
     if not new_tags:
         return []
     new_set = set(new_tags)
@@ -61,9 +52,7 @@ def find_peers(
 
 
 def append_backlink(existing_content: str, new_slug: str) -> str:
-    """Append `- [[new_slug]]` to the Related section. Idempotent: returns
-    unchanged if [[new_slug]] already appears anywhere in the file.
-    """
+    """Idempotent — no-op if [[new_slug]] already appears anywhere in the file."""
     link_line = f"- [[{new_slug}]]"
     if f"[[{new_slug}]]" in existing_content:
         return existing_content
@@ -73,7 +62,6 @@ def append_backlink(existing_content: str, new_slug: str) -> str:
         marker_idx = next(
             i for i, line in enumerate(lines) if line.strip() == _RELATED_MARKER
         )
-        # Find end of this H2 section (next ## or EOF)
         insert_idx = len(lines)
         for i in range(marker_idx + 1, len(lines)):
             if lines[i].startswith("## ") and not lines[i].startswith("## Related"):
@@ -95,9 +83,7 @@ def compute_backlink_writes(
     new_tags: list[str],
     index_content: str,
 ) -> dict[str, str]:
-    """Return {wiki/<peer>.md: new_content} for up to 5 peers gaining a
-    backlink. Caller merges into Writer's writes dict before commit.
-    """
+    """Caller merges result into Writer's writes dict before commit."""
     peer_slugs = find_peers(new_slug, new_tags, index_content)
     writes: dict[str, str] = {}
     for peer in peer_slugs:

@@ -1,18 +1,4 @@
-"""`monogram migrate` — opt-in migration from v0.6 vault layout to v0.7+.
-
-v0.7 introduced an eval harness that's enabled by default for NEW
-installs. Existing v0.6 users should opt in explicitly, not be surprised
-by eval infrastructure showing up unprompted.
-
-What this command does:
-  1. Detects existing v0.6 vault (vault_config without `eval_enabled` field)
-  2. Offers to write `eval_enabled: false` to mono/config.md (opt-in default)
-  3. Verifies `.gitignore` contains Telethon session file patterns
-  4. Verifies `log/pipeline.jsonl` path is available (creates if missing)
-  5. Reports final state
-
-Idempotent — safe to run multiple times.
-"""
+"""Idempotent v0.6 → v0.7+ migration: opt-in eval harness for existing installs."""
 from __future__ import annotations
 
 import sys
@@ -72,10 +58,8 @@ def migrate_apply(enable_eval: bool, dry_run: bool):
     if not click.confirm("\nProceed?", default=True):
         raise click.Abort()
 
-    # Apply config migration
     _apply_vault_config_migration(enable_eval=enable_eval)
 
-    # Apply .gitignore fix if needed
     _apply_gitignore_migration()
 
     click.echo("\n✓ Migration complete.")
@@ -84,11 +68,8 @@ def migrate_apply(enable_eval: bool, dry_run: bool):
 
 
 def _run_migration_checks() -> list[dict]:
-    """Return list of findings: each a dict with keys name, status,
-    needs_action, detail, action_description."""
     findings: list[dict] = []
 
-    # Check 1: vault_config has eval_enabled field?
     try:
         from .vault_config import load_vault_config
 
@@ -117,7 +98,6 @@ def _run_migration_checks() -> list[dict]:
             "action_description": "Fix vault_config issue before migrating",
         })
 
-    # Check 2: .gitignore has session file patterns?
     from pathlib import Path
 
     gitignore = Path(".gitignore")
@@ -154,12 +134,11 @@ def _run_migration_checks() -> list[dict]:
             "action_description": "Create .gitignore with session/env/cred patterns",
         })
 
-    # Check 3: log/ directory structure
     log_dir = Path("log")
     findings.append({
         "name": "log/ structure",
         "status": "exists" if log_dir.exists() else "missing (lazy-created)",
-        "needs_action": False,  # not a blocker; listener creates on first run
+        "needs_action": False,
         "detail": (
             "log/pipeline.jsonl + log/runs/ will be populated as the "
             "listener runs"
@@ -180,30 +159,25 @@ def _print_findings(findings: list[dict]) -> None:
 
 
 def _apply_vault_config_migration(enable_eval: bool) -> None:
-    """Write eval_enabled to mono/config.md via the bot config helper."""
     try:
-        from .bot_config_cmds import set_config_field
+        from .vault_config import set_config_field
     except ImportError:
         click.echo(
             "  ✗ Cannot import set_config_field — skipping config migration."
         )
         return
 
-    value = "true" if enable_eval else "false"
     try:
-        set_config_field("eval_enabled", value)
-        click.echo(f"  ✓ Wrote eval_enabled: {value} to mono/config.md")
+        set_config_field("eval_enabled", enable_eval)
+        click.echo(
+            f"  ✓ Wrote eval_enabled: {str(enable_eval).lower()} to mono/config.md"
+        )
     except Exception as e:
         click.echo(f"  ✗ Failed to write config: {e}")
 
 
 def _apply_gitignore_migration() -> None:
-    """Append any missing .gitignore patterns.
-
-    Writes a timestamped backup (.gitignore.bak.YYYYMMDDHHMMSS) before
-    touching the file, so recovery is a single `mv` rather than digging
-    through git log.
-    """
+    """Writes a timestamped .gitignore backup before modifying."""
     from datetime import datetime, timezone
     from pathlib import Path
 

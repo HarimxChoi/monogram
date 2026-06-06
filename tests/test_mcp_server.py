@@ -38,9 +38,11 @@ def test_tools_list_includes_core_and_v04_tools():
         "add_wiki_entry",
         # v0.4a LLM config
         "get_llm_config", "set_llm_config",
+        # P1 semantic
+        "semantic_search", "graph_search",
     ):
         assert expected in names, f"missing tool: {expected}"
-    assert len(names) == 13
+    assert len(names) == 15
 
 
 def test_every_tool_has_description_and_schema():
@@ -53,7 +55,7 @@ def test_recent_activity_handler_no_network():
     """Placeholder handler — must not require network."""
     msg = asyncio.run(_recent_activity(12))
     assert "12h" in msg
-    assert "v0.2" in msg
+    assert "not yet built" in msg
 
 
 def test_call_tool_unknown_returns_message():

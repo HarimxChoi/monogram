@@ -4,7 +4,7 @@ Each case asserts:
   (1) No items from known_pii appear in output
   (2) Structural similarity stays above 0.5 (anti-over-scrubbing)
 
-If this suite regresses, harvest must halt (§6.5 two-layer rule triggers
+If this suite regresses, harvest must halt (two-layer rule triggers
 via the replay safety check).
 """
 from __future__ import annotations

@@ -7,12 +7,11 @@ from . import __version__
 
 
 def _test_llm_reachable(llm_config: dict, env_additions: dict) -> None:
-    """Make a 'Say OK' test call for each configured tier. Non-fatal —
-    asks user to continue if the call fails (may be network flake)."""
+    """Non-fatal reachability test; asks user to continue on failure."""
     import asyncio
     import os
 
-    # Inject env so credentials flow into Pydantic config on next load
+    # env must be set before Pydantic config reload to pick up new credentials
     for k, v in env_additions.items():
         if v:
             os.environ[k] = v
@@ -58,7 +57,6 @@ def main():
     """Monogram — your personal mark on everything you build and learn."""
 
 
-# v0.6: register `monogram webui ...` subcommand group
 from .cli_webui import webui_group  # noqa: E402
 main.add_command(webui_group)
 
@@ -92,7 +90,6 @@ def init(non_interactive: bool):
 
     click.echo("Monogram init — let's set up your vault.\n")
 
-    # ── Step 1: GitHub credentials ──
     click.echo("Step 1/5: GitHub")
     pat = click.prompt(
         "  GitHub fine-grained PAT (Contents: R/W on the vault repo)",
@@ -118,7 +115,6 @@ def init(non_interactive: bool):
         click.echo(f"  ✗ Could not access {full_repo}: {e}")
         raise click.Abort()
 
-    # ── Step 2: Language ──
     click.echo("\nStep 2/5: Language")
     click.echo(
         "  Vault content (briefs, life entries, wiki bodies) is written in this "
@@ -129,7 +125,6 @@ def init(non_interactive: bool):
         default="en",
     )
 
-    # ── Step 3: Life categories ──
     click.echo("\nStep 3/5: Life categories")
     click.echo(f"  Defaults: {', '.join(_DEFAULT_LIFE_CATS)}")
     if click.confirm("  Use defaults?", default=True):
@@ -143,14 +138,12 @@ def init(non_interactive: bool):
         if "credentials" not in categories:
             categories.append("credentials")
 
-    # ── Step 4: Telegram (optional) ──
     click.echo("\nStep 4/5: Telegram (optional — leave blank to skip)")
     tg_bot_token = click.prompt("  Bot token", default="", show_default=False)
     tg_user_id = click.prompt("  Your user_id (integer)", default="", show_default=False)
     tg_api_id = click.prompt("  API ID (my.telegram.org)", default="", show_default=False)
     tg_api_hash = click.prompt("  API hash", default="", show_default=False)
 
-    # ── Step 5: Gemini ──
     click.echo("\nStep 5/5: LLM setup\n")
     click.echo("Choose a path:")
     click.echo("  [1] Default — Gemini free tier (recommended for $0/month)")
@@ -242,19 +235,16 @@ def init(non_interactive: bool):
             models["high"] = click.prompt("    model").strip()
         llm_config["llm_models"] = models
 
-    # The model used for the localization LLM call at skeleton-init time.
-    # Prefer 'single' or 'low' — cheapest tier.
+    # prefer cheapest tier for the one-shot localization call
     init_call_model = (
         llm_config["llm_models"].get("single")
         or llm_config["llm_models"].get("low")
         or ""
     )
 
-    # Optional reachability check
     click.echo("\nValidating...")
     _test_llm_reachable(llm_config, env_additions)
 
-    # ── Step 6: Web UI (v0.6) ──
     click.echo("\nStep 6/6: Web UI delivery\n")
     click.echo("Choose a path:")
     click.echo("  [1] GCP Cloud Storage (stable URL, $0/month — see docs/setup/gcp-webui.md)")
@@ -266,17 +256,43 @@ def init(non_interactive: bool):
     webui_config: dict = {}
     if webui_choice == "1":
         webui_config["webui_mode"] = "gcs"
-        webui_config["webui_gcs"] = {
-            "bucket": click.prompt(
-                "  Bucket name",
-                default=f"{username.lower()}-monogram-webui",
-            ).strip(),
-            "path_slug": "main",
-        }
-        click.echo(
-            "  Note: also set GOOGLE_APPLICATION_CREDENTIALS in .env pointing "
-            "at your service account JSON. See docs/setup/gcp-webui.md."
-        )
+        bucket = click.prompt(
+            "  Bucket name",
+            default=f"{username.lower()}-monogram-webui",
+        ).strip()
+        webui_config["webui_gcs"] = {"bucket": bucket, "path_slug": "main"}
+        region = click.prompt("  GCP region", default="us-central1").strip()
+        project = click.prompt(
+            "  GCP project id (blank to skip auto-provisioning)", default=""
+        ).strip()
+        if project and click.confirm(
+            f"  Create gs://{bucket} + service account + IAM now?", default=True
+        ):
+            from pathlib import Path as _Path
+
+            from .cli_provision_gcp import ProvisionError, provision_gcs_bucket
+            try:
+                summary = provision_gcs_bucket(
+                    project=project,
+                    bucket=bucket,
+                    region=region,
+                    key_path=_Path.home() / ".gcp" / "monogram-webui-key.json",
+                )
+                for step, status in summary["steps"]:
+                    click.echo(f"    ✓ {step}: {status}")
+                env_additions["GOOGLE_APPLICATION_CREDENTIALS"] = summary["key_path"]
+                click.echo(f"    ✓ SA key: {summary['key_path']}")
+            except ProvisionError as e:
+                click.echo(f"    ✗ provisioning failed: {e}")
+                click.echo(
+                    "    Set GOOGLE_APPLICATION_CREDENTIALS in .env manually. "
+                    "See docs/setup/gcp-webui.md."
+                )
+        else:
+            click.echo(
+                "  Note: set GOOGLE_APPLICATION_CREDENTIALS in .env pointing at "
+                "your service account JSON. See docs/setup/gcp-webui.md."
+            )
     elif webui_choice == "2":
         webui_config["webui_mode"] = "self-host"
         port = click.prompt("  Local port", default="8765")
@@ -287,7 +303,6 @@ def init(non_interactive: bool):
     else:
         webui_config["webui_mode"] = "mcp-only"
 
-    # Password (required for gcs / self-host)
     if webui_config["webui_mode"] != "mcp-only":
         from .encryption_layer import MIN_PASSWORD_LEN, validate_password
         click.echo(
@@ -311,7 +326,6 @@ def init(non_interactive: bool):
     else:
         env_additions["MONOGRAM_WEBUI_PASSWORD"] = ""
 
-    # ── Write .env ──
     env_path = Path(".env")
     if env_path.exists():
         if not click.confirm(".env exists. Overwrite?", default=False):
@@ -330,10 +344,11 @@ def init(non_interactive: bool):
         f"ANTHROPIC_API_KEY={env_additions['ANTHROPIC_API_KEY']}\n"
         f"OPENAI_API_KEY={env_additions['OPENAI_API_KEY']}\n"
         f"MONOGRAM_WEBUI_PASSWORD={env_additions.get('MONOGRAM_WEBUI_PASSWORD', '')}\n"
+        f"GOOGLE_APPLICATION_CREDENTIALS={env_additions.get('GOOGLE_APPLICATION_CREDENTIALS', '')}\n"
         "MONOGRAM_WATCH_REPOS=\n"
     )
     env_path.write_text(env_body)
-    # On unix, tighten .env perms so the password isn't world-readable
+    # restrict .env so the password isn't world-readable
     if not sys.platform.startswith("win"):
         try:
             import stat as _stat
@@ -342,16 +357,38 @@ def init(non_interactive: bool):
             pass
     click.echo(f"  ✓ Wrote {env_path}")
 
-    # ── Initialize skeleton in the mono repo ──
     click.echo("\nInitializing skeleton in vault repo...")
     asyncio.run(_init_skeleton(
         language, categories, init_call_model, llm_config, webui_config
     ))
 
+    if click.confirm(
+        "\nSet up daily brief + weekly report + semantic reindex on GitHub Actions now?",
+        default=True,
+    ):
+        brief_time = click.prompt("  Daily brief time (local 24h, HH:MM)", default="08:00")
+        utc_offset = click.prompt(
+            "  Your UTC offset in hours (e.g. 9 for KST, -5 for EST)",
+            default=0, type=int,
+        )
+        try:
+            from .actions_setup import setup_vault_actions
+
+            hh, mm = (int(x) for x in brief_time.split(":"))
+            click.echo(f"  ✓ {setup_vault_actions(hh, mm, utc_offset)}")
+        except Exception as e:
+            click.echo(
+                f"  ✗ Actions setup failed: {e}\n"
+                "    The PAT needs 'Workflows: write' + 'Secrets: write' on the vault "
+                "repo. Fix it and run `monogram setup-actions`."
+            )
+
     click.echo("\nDone.")
     click.echo("Next:")
     click.echo("  1. monogram auth     # one-time Telegram SMS login")
     click.echo("  2. monogram run      # start listener + bot")
+    click.echo("  3. monogram reindex  # build the semantic index (local model, no key)")
+    click.echo("                       # then: /search in Telegram, or `monogram search --semantic`")
     click.echo("\nTo change settings later, edit <vault>/config.md + restart monogram run.")
 
 
@@ -362,15 +399,7 @@ async def _init_skeleton(
     llm_config: dict | None = None,
     webui_config: dict | None = None,
 ):
-    """Write vault skeleton to the configured repo, localized via LLM if needed.
-
-    init_call_model: model string to use for the one-shot localization call
-                    (selected by wizard). Empty → skip localization.
-    llm_config: dict with llm_provider, llm_mode, llm_models, llm_base_url
-               to embed in config.md frontmatter. None → legacy config.md.
-    webui_config: dict with webui_mode, webui_gcs, webui_self_host to
-                 embed. None → mcp-only default.
-    """
+    """Write vault skeleton; init_call_model empty skips LLM localization."""
     import yaml as _yaml
     from . import github_store
     from .llm import complete
@@ -413,8 +442,6 @@ async def _init_skeleton(
     def t(phrase: str) -> str:
         return translations.get(phrase, phrase)
 
-    # Build config.md frontmatter — use yaml.safe_dump so nested
-    # llm_models dict serializes cleanly.
     frontmatter_dict: dict = {
         "primary_language": language,
         "life_categories": list(categories),
@@ -437,7 +464,20 @@ async def _init_skeleton(
     config_md = (
         f"---\n{frontmatter_yaml}---\n\n"
         f"# Mono — {t('Personal data vault')}\n\n"
-        f"{t('edit freely, restart monogram run to apply')}\n"
+        f"{t('edit freely, restart monogram run to apply')}\n\n"
+        "## Semantic search (embeddings)\n\n"
+        "The semantic index uses a **local** model by default — EmbeddingGemma run\n"
+        "on the GitHub Actions runner, no API key, works regardless of your chat\n"
+        "LLM. To override, add to the frontmatter above:\n\n"
+        "```yaml\n"
+        "embedding_model: \"\"          # \"\" = local EmbeddingGemma (default).\n"
+        "                              # or: openai/text-embedding-3-small,\n"
+        "                              #     gemini/gemini-embedding-001,\n"
+        "                              #     voyage/voyage-3.5, BAAI/bge-m3 (fastembed)\n"
+        "embedding_base_url: \"\"       # separate endpoint for a local/compat embedder\n"
+        "embedding_dimensions: 0       # 0 = model default; else MRL target dim\n"
+        "```\n\n"
+        "Changing the model requires a full re-embed (`monogram reindex`).\n"
     )
 
     readme_md = (
@@ -534,50 +574,56 @@ def run():
         raise click.Abort()
 
     from . import bot, listener
+    from .instance_lock import claim, guard
     from .queue_poller import run_queue_poller
+    from .scheduler import run_scheduler
 
-    # v0.7: kill-switch startup log — one line showing effective eval
-    # state and which layer set it. Covers audit need without per-command
-    # overhead. See docs/eval.md.
     _log_eval_state_at_startup()
 
+    instance_id = claim()
+
     async def main_loop():
-        await asyncio.gather(
-            listener.run_listener(bot.send_reply),
-            bot.run_bot(),
-            run_queue_poller(),
+        tasks = [
+            asyncio.create_task(c)
+            for c in (
+                listener.run_listener(bot.send_reply),
+                bot.run_bot(),
+                run_queue_poller(),
+                run_scheduler(),
+                guard(instance_id),
+            )
+        ]
+        # guard() returning first means superseded by a newer run; cancel the rest
+        done, pending = await asyncio.wait(
+            tasks, return_when=asyncio.FIRST_COMPLETED
         )
+        for t in pending:
+            t.cancel()
+        for t in done:
+            exc = t.exception()
+            if exc is not None and not isinstance(exc, asyncio.CancelledError):
+                raise exc
 
     asyncio.run(main_loop())
 
 
 def _log_eval_state_at_startup() -> None:
-    """Emit one log line at service start documenting effective eval state.
-
-    Resolution order (first match wins):
-      L1 — evals package not installed / not importable
-      L2 — MONOGRAM_EVAL_DISABLED=1 env var
-      L3 — eval_enabled: false in mono/config.md
-      default — enabled
-    """
+    """Log eval kill-switch state at startup; resolution: L1=import, L2=env, L3=config."""
     import logging
 
     log = logging.getLogger("monogram.startup")
 
-    # Layer 1: package presence
     try:
         from evals.kill_switch import is_eval_enabled  # type: ignore
     except ImportError:
         log.info("eval state: DISABLED (layer=1, evals package not installed)")
         return
 
-    # Layer 2: env var (re-check here rather than rely on kill_switch internal)
     import os as _os
     if _os.environ.get("MONOGRAM_EVAL_DISABLED", "").strip() == "1":
         log.info("eval state: DISABLED (layer=2, MONOGRAM_EVAL_DISABLED=1)")
         return
 
-    # Layer 3: vault_config flag
     try:
         from .vault_config import load_vault_config
         cfg = load_vault_config()
@@ -651,9 +697,79 @@ def weekly(no_push: bool, force: bool):
     click.echo(f"weekly: {result}")
 
 
-# v0.7: register `monogram eval *` subcommands if the optional extras
-# are installed. `pip install -e '.[eval]'` pulls in evals/ as a
-# sibling package; without it, `monogram eval` simply doesn't appear.
+@main.command("reindex")
+@click.option("--dry-run", is_flag=True, help="Report what would change without embedding or committing.")
+@click.option("--no-refresh", is_flag=True, help="Use the cached vault clone as-is (skip the GitHub pull).")
+def reindex(dry_run: bool, no_refresh: bool):
+    """Rebuild the semantic vector index (incremental — embeds only changed notes)."""
+    import asyncio
+
+    from .semantic_index import reindex as run_reindex
+
+    r = asyncio.run(run_reindex(refresh=not no_refresh, dry_run=dry_run))
+    click.echo(
+        f"reindex: {r['chunks']} chunks ({r['embedded']} embedded, {r['reused']} reused, "
+        f"{r['deleted']} deleted), {len(r['dirty_shards'])} shards"
+        + (" [dry-run]" if dry_run else f", committed={r['committed']}")
+    )
+
+
+@main.command("graph")
+@click.option("--date", default=None, help="Day to build (YYYY-MM-DD, default today UTC).")
+@click.option("--link", is_flag=True, help="Also run the motivated_by slow path (deterministic candidates → Flash verify).")
+def graph(date: str | None, link: bool):
+    """Build the event graph for a day: drops + commits → graph/{nodes,edges}.jsonl."""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from . import event_graph
+
+    day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    r = event_graph.build_graph(day)
+    click.echo(
+        f"graph: {day} — {r['nodes']} nodes (+{r['new_nodes']}), "
+        f"{r['edges']} edges (+{r['new_edges']}), committed={r['committed']}"
+    )
+    if link:
+        lr = asyncio.run(event_graph.link_motivated_by(day))
+        click.echo(f"graph link: +{lr['new_edges']} motivated_by edges, committed={lr['committed']}")
+
+
+@main.command("moc")
+@click.option("--min-size", default=3, help="Minimum notes per cluster.")
+def moc(min_size: int):
+    """Surface MOC (Map of Content) candidates — clusters of connected notes."""
+    import asyncio
+
+    from .graph_search import moc as run_moc
+
+    clusters = asyncio.run(run_moc(min_size=min_size))
+    if not clusters:
+        click.echo("No clusters found. Run `monogram reindex` + `monogram graph` first.")
+        return
+    for i, cluster in enumerate(clusters, 1):
+        click.echo(f"\n## MOC candidate {i} ({len(cluster)} notes)")
+        for node in cluster:
+            label = f"  {node['label']}" if node.get("label") else ""
+            click.echo(f"  - {node['path'] or node['id']}{label}")
+
+
+@main.command("setup-actions")
+@click.option("--time", "brief_time", default="08:00", help="Daily brief time (local 24h HH:MM).")
+@click.option("--utc-offset", default=0, type=int, help="Your UTC offset in hours (e.g. 9 for KST, -5 for EST).")
+def setup_actions(brief_time: str, utc_offset: int):
+    """Scaffold morning/weekly GitHub Actions in the vault repo + set Actions
+    secrets via the API. PAT needs Workflows + Secrets write on the vault repo."""
+    from .actions_setup import setup_vault_actions
+
+    try:
+        hh, mm = (int(x) for x in brief_time.split(":"))
+    except ValueError:
+        raise click.ClickException("--time must be HH:MM (e.g. 08:00)")
+    click.echo(f"setup-actions: {setup_vault_actions(hh, mm, utc_offset)}")
+
+
+# eval subcommands are optional; absent without pip install -e '.[eval]'
 try:
     from evals.cli import eval_group  # type: ignore
 
@@ -662,22 +778,18 @@ except ImportError:
     pass
 
 
-# v0.7: `monogram migrate` helper for v0.6 → v0.7+ schema opt-in.
 from .cli_migrate import migrate_group as _migrate_group  # noqa: E402
 main.add_command(_migrate_group)
 
 
-# v0.8: `monogram backup mirror|verify`.
 from .backup import backup_group as _backup_group  # noqa: E402
 main.add_command(_backup_group)
 
 
-# v0.8: `monogram search "query"`.
 from .cli_search import search_cmd as _search_cmd  # noqa: E402
 main.add_command(_search_cmd)
 
 
-# v0.8 Tier 4: `monogram stats` — pipeline health from terminal.
 from .cli_stats import stats_cmd as _stats_cli_cmd  # noqa: E402
 main.add_command(_stats_cli_cmd)
 

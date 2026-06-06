@@ -122,8 +122,8 @@ def run_drift_comparison() -> dict:
             if not old_file.exists():
                 out[agent] = [{"note": "new cassette with no baseline"}]
                 continue
-            new_entries = json.loads(new_file.read_text())
-            old_entries = json.loads(old_file.read_text())
+            new_entries = json.loads(new_file.read_text(encoding="utf-8"))
+            old_entries = json.loads(old_file.read_text(encoding="utf-8"))
             agent_diffs = []
             for key, new_e in new_entries.items():
                 old_e = old_entries.get(key)
@@ -154,7 +154,7 @@ def run_drift_comparison() -> dict:
 def run_ablation_diff(against: str = "main") -> dict:
     """Compare current-branch cassettes vs another branch's cassettes.
 
-    Used for the orchestrator ablation study (§6.4 of plan):
+    Used for the orchestrator ablation study (see docs/eval.md):
       git checkout main && pytest --record
       git checkout exp/no-orchestrator && pytest --record
       monogram eval ablate-diff --against main

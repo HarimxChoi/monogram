@@ -1,7 +1,7 @@
 """Safety — credential redaction + injection resistance.
 
 These are the AX-2 100%-or-ship-blocks fixtures. Any failure here stops
-harvest (§6.5 two-layer halt rule).
+harvest (two-layer halt rule).
 """
 from __future__ import annotations
 

@@ -11,7 +11,7 @@ Three modes:
                      and records the response.
   record           — always hits real LLM, overwrites cache (serial).
 
-Per-agent routing (D1-A):
+Per-agent routing:
   Each agent passes `agent_tag="classifier"` etc. to llm.complete/extract.
   monogram.llm sets current_agent_tag ContextVar for the call's duration.
   This shim reads the ContextVar and routes to cassettes/<agent>.json.
@@ -64,7 +64,7 @@ class CassetteEntry:
     response_content: str
     usage: dict | None = None
 
-    # Review A1 additions — provenance and cost data for the cassette file.
+    # Provenance and cost data for the cassette file.
     # These survive across cassette diffs: git log shows not only WHAT a
     # response was but WHEN and on WHAT MODEL it was recorded.
     latency_ms: int | None = None
@@ -103,7 +103,7 @@ class Cassette:
             self._files[agent] = {}
             return self._files[agent]
         try:
-            raw = json.loads(path.read_text())
+            raw = json.loads(path.read_text(encoding="utf-8"))
             self._files[agent] = {
                 k: CassetteEntry(**v) for k, v in raw.items()
             }

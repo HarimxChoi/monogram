@@ -1,16 +1,4 @@
-"""Weekly lint pass — wiki health check + self-healing.
-
-Runs as part of run_weekly_job(). Produces a LintReport feeding into the
-weekly report and commits self-healing writes (regenerated wiki/index.md,
-decayed confidence values).
-
-Checks:
-  1. Stale confidence decay: high→medium after 30d, medium→low after 90d
-  2. Broken wikilinks: [[slug]] in a wiki body where wiki/slug.md doesn't exist
-  3. Index regeneration: rebuild wiki/index.md from filesystem (authoritative
-     over incremental appends)
-  4. Orphan MEMORY.md pointers: pointers to paths that no longer exist
-"""
+"""Weekly wiki health check — confidence decay, broken wikilinks, index regen, orphan pointers."""
 from __future__ import annotations
 
 import logging
@@ -48,7 +36,6 @@ class LintReport:
 
 
 def _list_wiki_files() -> list[str]:
-    """List wiki/*.md files (excluding index.md)."""
     try:
         repo = github_store._repo()
         contents = repo.get_contents("wiki")
@@ -74,7 +61,6 @@ def _days_since(iso_str: str) -> int | None:
 
 
 def _check_stale_confidence(wiki_paths: list[str], report: LintReport) -> None:
-    """Decay high→medium after 30d, medium→low after 90d."""
     for path in wiki_paths:
         content = safe_read(path)
         if not content:
@@ -102,7 +88,6 @@ def _check_stale_confidence(wiki_paths: list[str], report: LintReport) -> None:
 
 
 def _check_broken_wikilinks(wiki_paths: list[str], report: LintReport) -> None:
-    """Flag [[slug]] references whose target file doesn't exist."""
     existing_slugs = {
         p.rsplit("/", 1)[-1].replace(".md", "") for p in wiki_paths
     }
@@ -117,7 +102,7 @@ def _check_broken_wikilinks(wiki_paths: list[str], report: LintReport) -> None:
 
 
 def _regenerate_wiki_index(wiki_paths: list[str], report: LintReport) -> None:
-    """Rebuild wiki/index.md from filesystem — authoritative."""
+    """Filesystem is authoritative; overwrites incremental-append drift."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     lines = [
         "# Wiki Index",
@@ -133,7 +118,6 @@ def _regenerate_wiki_index(wiki_paths: list[str], report: LintReport) -> None:
         slug = path.rsplit("/", 1)[-1].replace(".md", "")
         tags = fm.get("tags") or [] if fm else []
         tag_str = " ".join(f"#{t}" for t in tags[:5]) if tags else ""
-        # First non-empty non-heading line as summary
         summary = ""
         for line in (body or "").split("\n"):
             line = line.strip()
@@ -153,7 +137,6 @@ def _regenerate_wiki_index(wiki_paths: list[str], report: LintReport) -> None:
 
 
 def _check_orphan_pointers(wiki_paths: list[str], report: LintReport) -> None:
-    """MEMORY.md entries pointing to files that don't exist."""
     memory = safe_read("MEMORY.md")
     if not memory:
         return
@@ -165,13 +148,11 @@ def _check_orphan_pointers(wiki_paths: list[str], report: LintReport) -> None:
             if path not in existing_paths:
                 report.orphan_pointers.append((name, path))
         else:
-            # For non-wiki pointers (projects/, life/), read the path to check
             if not safe_read(path):
                 report.orphan_pointers.append((name, path))
 
 
 def run_lint() -> LintReport:
-    """Execute all lint checks. Returns report; caller commits writes."""
     report = LintReport()
     wiki_paths = _list_wiki_files()
 
@@ -185,7 +166,6 @@ def run_lint() -> LintReport:
 
 
 def format_lint_section(report: LintReport) -> str:
-    """Render findings as a markdown section for the weekly report."""
     lines = ["## Health check", ""]
 
     if report.demoted_confidence:

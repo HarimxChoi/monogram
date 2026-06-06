@@ -7,7 +7,7 @@ Flow:
   3. Anonymize via anonymizer.scrub(). Skip rows where ResidualPII.
   4. Write dated audit copy to evals/fixtures/harvested-<date>.jsonl.
   5. Run replay eval against existing _accepted.jsonl. Halt on safety
-     regression (two-layer halt rule, §6.5).
+     regression (two-layer halt rule).
   6. On pass: write `.monogram/harvest-pending/<token>.json` + push
      approval message to Telegram.
 
@@ -104,7 +104,7 @@ def _load_accepted_ids() -> set[str]:
     if not _ACCEPTED_PATH.exists():
         return set()
     out: set[str] = set()
-    for line in _ACCEPTED_PATH.read_text().splitlines():
+    for line in _ACCEPTED_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -261,7 +261,7 @@ def run_harvest(
     # Write audit copy
     audit_path = _FIXTURES_DIR / f"harvested-{harvest_id}.jsonl"
     audit_path.parent.mkdir(parents=True, exist_ok=True)
-    with audit_path.open("a") as f:
+    with audit_path.open("a", encoding="utf-8") as f:
         for h in harvested:
             f.write(json.dumps(asdict(h), ensure_ascii=False) + "\n")
     log.info("harvest: wrote audit file %s (%d fixtures)", audit_path, len(harvested))
@@ -306,7 +306,7 @@ def run_harvest(
 def _run_replay_safety_check() -> tuple[bool, str]:
     """Run pytest in replay mode; return (ok, halt_reason_if_not).
 
-    Two-layer halt rule (§6.5): message differs by cassette freshness.
+    Two-layer halt rule: message differs by cassette freshness.
     """
     import subprocess
     import time
@@ -457,7 +457,7 @@ def accept_pending(token: str) -> tuple[bool, str]:
         return (False, f"Audit file missing: {audit_path}")
 
     accepted = []
-    with audit_path.open() as f:
+    with audit_path.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -471,7 +471,7 @@ def accept_pending(token: str) -> tuple[bool, str]:
 
     # Append to _accepted.jsonl
     _ACCEPTED_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _ACCEPTED_PATH.open("a") as f:
+    with _ACCEPTED_PATH.open("a", encoding="utf-8") as f:
         for d in accepted:
             f.write(json.dumps(d, ensure_ascii=False) + "\n")
 
@@ -534,7 +534,7 @@ def _maybe_complete_onboarding() -> None:
     if not _ACCEPTED_PATH.exists():
         return
     seen_harvests: set[str] = set()
-    for line in _ACCEPTED_PATH.read_text().splitlines():
+    for line in _ACCEPTED_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -580,7 +580,7 @@ def rollback_harvest(harvest_id: str) -> dict:
     if _ACCEPTED_PATH.exists():
         kept = []
         removed = 0
-        for line in _ACCEPTED_PATH.read_text().splitlines():
+        for line in _ACCEPTED_PATH.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue

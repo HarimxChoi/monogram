@@ -1,16 +1,4 @@
-"""/stats — show pipeline latency + error-rate distribution in Telegram.
-
-Lets the user check dogfood metrics from their phone without SSH'ing
-to the server or opening the GitHub repo.
-
-Usage in Telegram:
-    /stats           → last 7 days
-    /stats 1         → last 24 hours
-    /stats 30        → last 30 days
-
-Keeps replies under 4096 chars (Telegram message limit). For full
-reports, users can run `monogram stats --window 30 --markdown` locally.
-"""
+"""/stats: pipeline latency and error-rate metrics in Telegram."""
 from __future__ import annotations
 
 import logging
@@ -30,11 +18,9 @@ _cfg = load_config()
 
 @router.message(Command("stats"))
 async def stats_cmd(message: Message):
-    """Reply with pipeline health metrics from log/pipeline.jsonl."""
     if str(message.from_user.id) != str(_cfg.telegram_user_id):
-        return  # silent ignore non-owner
+        return
 
-    # Parse optional window arg: /stats 30 → 30 days
     text = (message.text or "").strip()
     window_days = 7
     match = re.search(r"/stats\s+(\d+)", text)
@@ -60,7 +46,6 @@ async def stats_cmd(message: Message):
         )
         return
 
-    # Compact markdown for Telegram (no tables, which render poorly on mobile)
     lines = [
         f"*Pipeline stats — last {window_days}d*",
         f"",
@@ -82,13 +67,11 @@ async def stats_cmd(message: Message):
             lines.append(f"  {s.stage}: {s.p50_ms}/{s.p95_ms}")
 
     if stats.by_target_kind:
-        # Top 5 kinds
         top = sorted(stats.by_target_kind.items(), key=lambda x: -x[1])[:5]
         lines.extend(["", "Top target kinds:"])
         for kind, count in top:
             lines.append(f"  {kind}: {count}")
 
-    # Use HTML format to avoid accidental markdown-escape issues
     reply = "\n".join(lines)
     if len(reply) > 4000:
         reply = reply[:4000] + "\n…(truncated)"

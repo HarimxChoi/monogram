@@ -1,18 +1,4 @@
-"""v0.6 — Dashboard data collection + Jinja rendering.
-
-Single entry point: `render_bundle()` returns UTF-8 HTML bytes. That
-plaintext is then passed through `encryption_layer.wrap()` before upload.
-
-Data sources (all via safe_read — credentials never reach the LLM or the UI):
-  - board.md              : project board, optional critpath frontmatter
-  - projects/*.md         : active + inactive
-  - projects/archive/*.md : recent done entries
-  - life/<area>.md        : last 7 days of H3 entries per area (NOT credentials)
-  - wiki/index.md         : recent + tag cloud
-  - daily/<today>/drops.md + commits.md
-
-Rate-limit safety: `asyncio.Semaphore(10)` caps concurrent GitHub API calls.
-"""
+"""Dashboard data → Jinja render. safe_read ensures credentials never reach the UI; Semaphore(10) caps concurrent GitHub calls."""
 from __future__ import annotations
 
 import asyncio
@@ -25,15 +11,12 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from . import github_store
+from . import __version__, github_store
 from .safe_read import safe_read
 
 _SEMA = asyncio.Semaphore(10)
 _TEMPLATE_DIR = Path(__file__).parent / "webui" / "templates"
-_MONOGRAM_VERSION = "v0.6"
-
-
-# ── Jinja env ──
+_MONOGRAM_VERSION = f"v{__version__}"
 
 
 def _jinja_env() -> Environment:
@@ -49,17 +32,11 @@ def _read_static(name: str) -> str:
     return (_TEMPLATE_DIR / name).read_text(encoding="utf-8")
 
 
-# ── concurrency-capped reads ──
-
-
 async def _read(path: str) -> str:
     async with _SEMA:
         return await asyncio.get_event_loop().run_in_executor(
             None, safe_read, path
         )
-
-
-# ── time helpers ──
 
 
 def _now() -> datetime:
@@ -71,7 +48,6 @@ def _today_iso() -> str:
 
 
 def _relative_time(iso_like: str | datetime | None) -> str:
-    """Render '2h ago', '3d ago', 'yesterday', etc. UTC-naive tolerant."""
     if iso_like is None:
         return "—"
     if isinstance(iso_like, str):
@@ -99,9 +75,6 @@ def _relative_time(iso_like: str | datetime | None) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-# ── board / projects ──
-
-
 _LIFE_ENTRY_RE = re.compile(
     r"^## (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) — (.+)$", re.MULTILINE
 )
@@ -113,7 +86,6 @@ _WIKI_INDEX_RE = re.compile(
 
 
 def _deadline_label(fm: dict) -> tuple[str, str]:
-    """Return (label, css_modifier) for a project's deadline frontmatter."""
     deadline = fm.get("deadline")
     if not deadline:
         return "—", "ok"
@@ -134,7 +106,6 @@ def _deadline_label(fm: dict) -> tuple[str, str]:
 
 
 def _extract_note(body: str, max_chars: int = 140) -> str:
-    """First non-heading paragraph, trimmed."""
     for para in body.split("\n\n"):
         text = para.strip()
         if not text or text.startswith("#"):
@@ -152,7 +123,6 @@ def _extract_blocker(fm: dict, body: str) -> str | None:
 
 
 def _make_sparkline(points: list[int], width: int = 70, height: int = 14) -> str:
-    """Generate a tiny inline SVG polyline. Zero-data case returns a dim line."""
     if not points:
         return f'<svg class="spark spark--dim" viewBox="0 0 {width} {height}"></svg>'
     lo, hi = min(points), max(points)
@@ -173,7 +143,6 @@ def _make_sparkline(points: list[int], width: int = 70, height: int = 14) -> str
 
 
 def _count_mentions_per_day(slug: str, days: int = 30) -> list[int]:
-    """Count occurrences of `slug` across daily/<D>/drops.md + commits.md."""
     counts: list[int] = []
     now = _now()
     for i in range(days - 1, -1, -1):
@@ -186,7 +155,6 @@ def _count_mentions_per_day(slug: str, days: int = 30) -> list[int]:
 
 
 def _list_dir(folder: str) -> list[str]:
-    """List repo files under `folder` via github_store. Returns [] on any error."""
     try:
         repo = github_store._repo()
         contents = repo.get_contents(folder)
@@ -237,7 +205,6 @@ def _project_card(path: str, body_limit: int = 160) -> dict:
 
 
 def _group_projects() -> dict:
-    """Return {active:[cards], inactive:[cards], done:[cards], total:int}."""
     active, inactive = [], []
     for p in _list_dir("projects"):
         if p.endswith("/archive") or "/archive/" in p:
@@ -256,11 +223,7 @@ def _group_projects() -> dict:
     return {"active": active, "inactive": inactive, "done": done, "total": total}
 
 
-# ── critpath ──
-
-
 def _critpath(board_fm: dict | None, project_cards: list[dict]) -> list[dict]:
-    """Items with blockers, urgent deadlines, or explicit priority=critical."""
     items: list[dict] = []
     for card in project_cards:
         if card.get("blocker") or card["deadline_class"] == "urgent":
@@ -275,9 +238,6 @@ def _critpath(board_fm: dict | None, project_cards: list[dict]) -> list[dict]:
             if len(items) >= 3:
                 break
     return items
-
-
-# ── life ──
 
 
 _LIFE_TAG_CSS = {
@@ -301,14 +261,13 @@ def _life_items(days: int = 7) -> list[dict]:
     items: list[dict] = []
     for area in cfg.life_categories:
         if area == "credentials":
-            continue  # NEVER surface
+            continue  # never surface credentials in the UI
         content = safe_read(f"life/{area}.md") or ""
         for m in _LIFE_ENTRY_RE.finditer(content):
             ts_iso = f"{m.group(1)}T{m.group(2)}:00"
             if ts_iso < since_iso:
                 continue
             title = m.group(3).strip()
-            # Extract snippet from the paragraph right after the header
             start = m.end()
             next_header = content.find("\n## ", start)
             snippet_block = (
@@ -336,11 +295,7 @@ def _life_items(days: int = 7) -> list[dict]:
     return items[:20]
 
 
-# ── wiki ──
-
-
 def _wiki_data(recent_n: int = 10) -> dict:
-    """Recent entries + tag cloud from wiki/index.md."""
     index = safe_read("wiki/index.md") or ""
     rows: list[tuple[str, str, list[str], str]] = []
     for m in _WIKI_INDEX_RE.finditer(index):
@@ -358,7 +313,6 @@ def _wiki_data(recent_n: int = 10) -> dict:
             "time_relative": _relative_time(date_str) if date_str else "—",
         })
 
-    # Tag cloud: top 12 tags by frequency
     counter: dict[str, int] = {}
     for _, _, tags, _ in rows:
         for t in tags:
@@ -368,9 +322,6 @@ def _wiki_data(recent_n: int = 10) -> dict:
         for name, count in sorted(counter.items(), key=lambda x: -x[1])[:12]
     ]
     return {"recent": recent, "tag_cloud": tag_cloud, "total": len(rows)}
-
-
-# ── today ──
 
 
 _DROP_LINE_RE = re.compile(
@@ -391,7 +342,7 @@ def _today_data() -> dict:
     for m in _DROP_LINE_RE.finditer(drops_content):
         time, kind, dest = m.groups()
         drops.append({"time": time, "source": kind, "destination": dest})
-    drops = drops[-15:]  # latest 15
+    drops = drops[-15:]
 
     commits = []
     current_repo = ""
@@ -410,9 +361,6 @@ def _today_data() -> dict:
                 })
     commits = commits[-15:]
     return {"date": today, "drops": drops, "commits": commits}
-
-
-# ── meta ──
 
 
 def _meta() -> dict:
@@ -434,11 +382,7 @@ def _meta() -> dict:
     }
 
 
-# ── render ──
-
-
 def render_bundle_sync(context: dict | None = None) -> bytes:
-    """Synchronous render for tests / quick usage. Uses already-populated context."""
     env = _jinja_env()
     tpl = env.get_template("dashboard.html.j2")
     ctx: dict[str, Any] = {
@@ -451,14 +395,9 @@ def render_bundle_sync(context: dict | None = None) -> bytes:
 
 
 async def render_bundle() -> bytes:
-    """Collect data + render. Returns UTF-8 HTML bytes (plaintext).
-
-    Caller typically wraps this in encryption_layer.wrap() before publishing.
-    """
+    """Returns UTF-8 HTML (plaintext); caller wraps with encryption_layer.wrap() before upload."""
     loop = asyncio.get_event_loop()
 
-    # Parallelize the four large blocks — each contains multiple github_store calls
-    # already capped by the semaphore.
     board_future = loop.run_in_executor(None, _group_projects)
     life_future = loop.run_in_executor(None, _life_items)
     wiki_future = loop.run_in_executor(None, _wiki_data)
@@ -469,7 +408,6 @@ async def render_bundle() -> bytes:
         board_future, life_future, wiki_future, today_future, meta_future,
     )
 
-    # Critical path derived from board's active+inactive
     critpath = _critpath(None, board["active"])
 
     context = {

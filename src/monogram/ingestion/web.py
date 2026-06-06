@@ -1,19 +1,7 @@
-"""Web page extractor — trafilatura primary, jina.ai reader fallback.
+"""Web extractor — trafilatura primary, jina.ai reader fallback for JS-heavy pages.
 
-Why trafilatura: it's the highest-accuracy body-text extractor for
-modern HTML (outperforms readability-lxml, newspaper3k, Goose3). Zero
-ML models, works fully offline once the page is fetched.
-
-Why jina as fallback: for JS-heavy pages where trafilatura's HTML parse
-returns empty, jina.ai/reader renders the page server-side (free,
-no-auth) and returns clean markdown.
-
-SSRF gate: `require_safe_url` BEFORE fetch — blocks private IPs and
-non-HTTP schemes. The optional jina fallback also requires the URL to
-have passed the safe check locally, since jina.ai will happily fetch
-internal URLs if we pass them in (no, they won't — jina resolves the
-URL from its own infra — but we don't want to tell jina about our
-internal topology either).
+SSRF gate applied before fetch; jina fallback also requires local safe check so internal
+topology is not leaked to jina's infra.
 """
 from __future__ import annotations
 
@@ -26,7 +14,6 @@ log = logging.getLogger("monogram.ingestion.web")
 
 
 async def extract(url: str) -> ExtractionResult:
-    """Extract main content from a web page URL."""
     try:
         require_safe_url(url)
     except Exception as e:
@@ -39,7 +26,6 @@ async def extract(url: str) -> ExtractionResult:
             warning=str(e),
         )
 
-    # Tier 1: trafilatura (fast, accurate for static HTML)
     text = await _trafilatura_extract(url)
     if text and len(text) >= 200:
         return ExtractionResult(
@@ -50,7 +36,6 @@ async def extract(url: str) -> ExtractionResult:
             extraction_method="trafilatura",
         )
 
-    # Tier 2: jina.ai reader (free, renders JS-heavy pages)
     jina_text = await _jina_reader_extract(url)
     if jina_text and len(jina_text) >= 100:
         return ExtractionResult(
@@ -62,7 +47,6 @@ async def extract(url: str) -> ExtractionResult:
             warning="used_jina_fallback" if text else None,
         )
 
-    # Both failed — return whatever trafilatura got, with warning
     return ExtractionResult(
         source_type="web",
         url=url,
@@ -75,7 +59,6 @@ async def extract(url: str) -> ExtractionResult:
 
 
 async def _trafilatura_extract(url: str) -> str | None:
-    """Use trafilatura to fetch + extract main body text."""
     def _sync() -> str | None:
         try:
             import trafilatura  # type: ignore
@@ -84,11 +67,9 @@ async def _trafilatura_extract(url: str) -> str | None:
             return None
 
         try:
-            # trafilatura.fetch_url returns the raw HTML (or None)
             downloaded = trafilatura.fetch_url(url)
             if not downloaded:
                 return None
-            # extract returns the main body text as plain text or markdown
             return trafilatura.extract(
                 downloaded,
                 output_format="markdown",
@@ -104,10 +85,7 @@ async def _trafilatura_extract(url: str) -> str | None:
 
 
 async def _jina_reader_extract(url: str) -> str | None:
-    """Fallback: jina.ai/reader serves clean markdown for any URL.
-
-    No auth. Free tier: 200 req/min.
-    """
+    """Free, no auth; 200 req/min."""
     def _sync() -> str | None:
         try:
             import httpx

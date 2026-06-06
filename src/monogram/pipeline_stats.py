@@ -1,24 +1,4 @@
-"""Pipeline statistics — read log/pipeline.jsonl and compute latency
-distributions, error rates, and stage breakdowns for dogfood and
-baseline snapshots.
-
-Used by:
-  - `monogram eval baseline --save` to snapshot current-state metrics
-    as reference for drift detection
-  - `/stats` Telegram command (bot_stats_cmd) to show rolling metrics
-    from your phone
-  - morning_job health summary (when available)
-
-Design:
-  - Pure-Python statistics (no numpy dep). Personal-scale data, <10k
-    entries typical.
-  - Streaming parse — large logs stay memory-bounded.
-  - Graceful on malformed lines (swallows errors the same way
-    pipeline_log.log_pipeline_run does).
-  - Quantiles via nearest-rank method (no interpolation). With ~50+
-    samples this is indistinguishable from linear-interp methods but
-    simpler and more robust to outliers.
-"""
+"""Pipeline statistics — compute latency, error rate, and stage breakdowns from log/pipeline.jsonl."""
 from __future__ import annotations
 
 import json
@@ -31,7 +11,6 @@ log = logging.getLogger("monogram.pipeline_stats")
 
 @dataclass
 class LatencySummary:
-    """p50/p95/p99 latency snapshot across a time window."""
     samples: int
     p50_ms: int
     p95_ms: int
@@ -43,8 +22,6 @@ class LatencySummary:
 
 @dataclass
 class StageBreakdown:
-    """Per-stage latency summary. Useful to see where time is spent
-    (classifier/extractor/verifier usually dominate)."""
     stage: str
     samples: int
     p50_ms: int
@@ -54,7 +31,6 @@ class StageBreakdown:
 
 @dataclass
 class PipelineStats:
-    """Rolling snapshot of pipeline health across a window."""
     window_days: int
     total_runs: int
     error_rate: float          # (blocked OR exceptioned) / total
@@ -68,7 +44,6 @@ class PipelineStats:
         return asdict(self)
 
     def to_markdown(self) -> str:
-        """Human-readable snapshot for baseline files + /stats replies."""
         warmup = self.latency.samples < 10
         warmup_note = (
             " *(sparse data — p95/p99 unreliable below n=10)*"
@@ -110,13 +85,7 @@ class PipelineStats:
 
 
 def _quantile(sorted_values: list[int], q: float) -> int:
-    """Nearest-rank quantile. q in [0, 1].
-
-    Nearest-rank formula: index = ceil(q * n) - 1, clamped to [0, n-1].
-    For q=0.5 on 5 sorted values → ceil(2.5)-1 = 2 → middle value ✓
-    For q=0.95 on 20 values → ceil(19)-1 = 18 → 19th value ✓
-    For q=0 → index 0 (smallest) by convention.
-    """
+    # Nearest-rank: idx = ceil(q*n)-1; no interpolation — simpler and more robust at low n.
     if not sorted_values:
         return 0
     import math
@@ -143,7 +112,6 @@ def _summarize(durations: list[int]) -> LatencySummary:
 
 
 def _parse_jsonl_stream(text: str):
-    """Yield dict records, skipping unparseable lines silently."""
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -159,12 +127,7 @@ def compute_stats(
     window_days: int = 7,
     now: datetime | None = None,
 ) -> PipelineStats:
-    """Compute pipeline stats across the last `window_days` of entries.
-
-    `log_content` is the raw text of log/pipeline.jsonl. This separation
-    from I/O keeps it testable — callers handle the github_store.read
-    or file-path fetch.
-    """
+    # I/O-free so callers can test without touching github_store.
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=window_days)
 
@@ -207,7 +170,6 @@ def compute_stats(
     total = len(durations)
 
     stage_breakdowns: list[StageBreakdown] = []
-    # Stable ordering: pipeline execution order
     for stage_name in ("orchestrator", "classifier", "extractor", "verifier", "writer"):
         samples = per_stage.get(stage_name, [])
         if not samples:
@@ -234,11 +196,6 @@ def compute_stats(
 
 
 def fetch_stats(window_days: int = 7) -> PipelineStats | None:
-    """Fetch log/pipeline.jsonl from the vault and compute stats.
-
-    Returns None if the log is unreachable or empty — callers should
-    render "no data yet" rather than erroring.
-    """
     try:
         from . import github_store
         content = github_store.read("log/pipeline.jsonl")

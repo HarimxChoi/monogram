@@ -1,10 +1,4 @@
-"""v0.6 — `monogram webui ...` CLI subcommand group.
-
-Commands:
-  rotate-password   Prompt + write MONOGRAM_WEBUI_PASSWORD to .env (chmod 600)
-  test              Dry-run render_bundle, report errors
-  url               Print current backend URL
-"""
+"""Web UI CLI subcommands: rotate-password, test, url."""
 from __future__ import annotations
 
 import asyncio
@@ -23,11 +17,7 @@ def webui_group():
 
 @webui_group.command("rotate-password")
 def rotate_password():
-    """Interactively rotate MONOGRAM_WEBUI_PASSWORD in the local .env.
-
-    Never transits Telegram. Password is prompted twice with validation;
-    .env is rewritten in place with 0600 permissions where possible.
-    """
+    """Rotate MONOGRAM_WEBUI_PASSWORD in .env (never transits Telegram)."""
     from .encryption_layer import MIN_PASSWORD_LEN, validate_password
 
     env_path = Path(".env")
@@ -50,7 +40,6 @@ def rotate_password():
             continue
         break
 
-    # Rewrite .env in place
     content = env_path.read_text(encoding="utf-8")
     new_lines: list[str] = []
     replaced = False
@@ -64,7 +53,6 @@ def rotate_password():
         new_lines.append(f"MONOGRAM_WEBUI_PASSWORD={pw}")
     env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
-    # Tighten permissions on unix
     if not sys.platform.startswith("win"):
         try:
             os.chmod(env_path, stat.S_IRUSR | stat.S_IWUSR)

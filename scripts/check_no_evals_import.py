@@ -65,7 +65,7 @@ def _imports_evals(node: ast.AST) -> bool:
 def scan(root: Path) -> list[str]:
     violations: list[str] = []
     for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         allowed = _try_lines_with_importerror(tree)
         for node in ast.walk(tree):
             if not _imports_evals(node):
@@ -92,7 +92,7 @@ def main(argv: list[str]) -> int:
         for v in violations:
             print("  " + v)
         return 1
-    print("clean — AX-1 holds")
+    print("clean - AX-1 holds")
     return 0
 
 

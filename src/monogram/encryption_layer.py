@@ -1,12 +1,4 @@
-"""v0.6 — Client-side decryption envelope for the web UI.
-
-Server produces an encrypted HTML blob. The browser prompts for a
-password, derives a key via PBKDF2-HMAC-SHA256 (600k iterations),
-and decrypts via AES-256-GCM. Tamper detection is free (GCM auth tag).
-
-Hosting the ciphertext on a public bucket is safe because the bucket
-never sees the password — derivation and decryption are 100% client-side.
-"""
+"""AES-256-GCM envelope: PBKDF2-HMAC-SHA256 key derivation is 100% client-side."""
 from __future__ import annotations
 
 import base64
@@ -26,7 +18,6 @@ MIN_PASSWORD_LEN: Final = 16
 
 
 def validate_password(password: str) -> list[str]:
-    """Return list of validation error strings; empty list == OK."""
     errors: list[str] = []
     if not isinstance(password, str) or not password:
         errors.append("password is empty")
@@ -55,10 +46,7 @@ def _derive_key(password: str, salt: bytes) -> bytes:
 
 
 def encrypt_blob(plaintext: bytes, password: str) -> bytes:
-    """Return `base64(salt || nonce || ciphertext+tag)` as bytes.
-
-    Raises ValueError if password fails validation.
-    """
+    """Returns base64(salt || nonce || ciphertext+GCM-tag)."""
     errors = validate_password(password)
     if errors:
         raise ValueError("; ".join(errors))
@@ -73,7 +61,7 @@ def encrypt_blob(plaintext: bytes, password: str) -> bytes:
 
 
 def decrypt_blob(blob_b64: bytes | str, password: str) -> bytes:
-    """Symmetric counterpart used by tests. Never called from the server at runtime."""
+    """Test-only counterpart — never called from the server at runtime."""
     if isinstance(blob_b64, str):
         blob_b64 = blob_b64.encode("ascii")
     raw = base64.b64decode(blob_b64)
@@ -86,11 +74,7 @@ def decrypt_blob(blob_b64: bytes | str, password: str) -> bytes:
 
 
 def wrap(plaintext_html: bytes | str, password: str) -> bytes:
-    """Encrypt HTML and inline it into the shell template.
-
-    Returns bytes ready to write to disk or upload. The returned bytes are
-    a complete HTML page with password prompt + decrypt JS + encrypted blob.
-    """
+    """Encrypt HTML and inline into shell template; returns complete page bytes."""
     if isinstance(plaintext_html, str):
         plaintext_html = plaintext_html.encode("utf-8")
     blob = encrypt_blob(plaintext_html, password).decode("ascii")
@@ -102,16 +86,10 @@ _SHELL_TEMPLATE_CACHE: str | None = None
 
 
 def _shell_template() -> str:
-    """Load shell.html.j2 verbatim (no Jinja here; just a placeholder string).
-
-    The shell is static — it doesn't need templating. We only replace one
-    placeholder, `__ENCRYPTED_BLOB__`. Kept out of Jinja so encryption
-    doesn't depend on jinja2 being importable.
-    """
+    """Kept outside Jinja so encryption doesn't depend on jinja2."""
     global _SHELL_TEMPLATE_CACHE
     if _SHELL_TEMPLATE_CACHE is not None:
         return _SHELL_TEMPLATE_CACHE
-    # Look it up next to this module.
     here = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(here, "webui", "templates", "shell.html.j2")
     with open(path, "r", encoding="utf-8") as f:

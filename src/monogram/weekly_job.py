@@ -1,27 +1,20 @@
-"""Phase E — Weekly job, runs Sunday 21:00.
-
-Step 1: Generate weekly report from past 7 daily folders (Mon→Sun).
-Step 2: Archival sweep — move oldest complete week past 67 days to raw/.
-
-See docs/vault-layout.md.
-"""
+"""Weekly job, runs Sunday 21:00."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from . import github_store
-from .config import load_config
 from .llm import complete
 from .models import get_model
 from .safe_read import is_blocked, safe_read
 
-config = load_config()
+log = logging.getLogger("monogram.weekly_job")
 
 RETENTION_DAYS = 67
 
 
 def _last_monday(reference: datetime) -> datetime:
-    """Return the most recent Monday at 00:00 UTC (last week if today is Sunday)."""
     days_since_monday = reference.weekday()
     if days_since_monday == 0 and reference.hour < 22:
         days_since_monday = 7
@@ -31,7 +24,6 @@ def _last_monday(reference: datetime) -> datetime:
 
 
 def _past_7_days(reference: datetime) -> list[str]:
-    """Return the past 7 date strings (Mon→Sun of last complete week)."""
     monday = _last_monday(reference)
     return [(monday + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
 
@@ -41,11 +33,7 @@ def _iso_week_label(monday: datetime) -> str:
 
 
 async def generate_weekly_report(lint_section: str = "") -> str | None:
-    """Reads past 7 daily folders (last complete Mon→Sun), generates report.
-
-    If `lint_section` is provided, appended verbatim after the LLM body
-    (authoritative lint findings survive even if the LLM drifts).
-    """
+    """lint_section appended verbatim so authoritative findings survive LLM drift."""
     now = datetime.now(timezone.utc)
     days = _past_7_days(now)
     monday = _last_monday(now)
@@ -80,7 +68,7 @@ async def generate_weekly_report(lint_section: str = "") -> str | None:
             model=get_model("high"),
         )
     except Exception as e:
-        print(f"weekly report: Pro call failed ({e!r}); using minimal fallback")
+        log.warning("weekly report: Pro call failed (%r); using minimal fallback", e)
         report = "(Pro call unavailable — see daily reports in `daily/YYYY-MM-DD/report.md`)"
 
     body_parts = [
@@ -104,7 +92,6 @@ async def generate_weekly_report(lint_section: str = "") -> str | None:
 
 
 def _list_daily_folders() -> list[str]:
-    """List daily/YYYY-MM-DD/ folders from the repo."""
     repo = github_store._repo()
     try:
         contents = repo.get_contents("daily")
@@ -116,13 +103,14 @@ def _list_daily_folders() -> list[str]:
 
 
 async def archival_sweep() -> list[str]:
-    """Move daily folders older than RETENTION_DAYS to raw/.
-
-    Moves one complete Monday→Sunday week at a time (calendar-aligned).
-    """
+    """Move daily folders older than RETENTION_DAYS to raw/, one full week at a time."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=RETENTION_DAYS)
-    folders = _list_daily_folders()
+    try:
+        folders = _list_daily_folders()
+    except Exception as e:
+        log.warning("archival_sweep: cannot list daily folders (%s); skipping", e)
+        return []
     moved: list[str] = []
 
     for folder_date_str in folders:
@@ -136,9 +124,6 @@ async def archival_sweep() -> list[str]:
         if folder_date >= cutoff:
             break
 
-        # Read all files in this daily folder and move to raw/.
-        # Defense in depth: skip anything credential-adjacent even though
-        # daily/ shouldn't contain credentials.
         try:
             repo = github_store._repo()
             contents = repo.get_contents(f"daily/{folder_date_str}")
@@ -146,7 +131,7 @@ async def archival_sweep() -> list[str]:
                 if f.type != "file":
                     continue
                 if is_blocked(f.path):
-                    print(f"archival_sweep: skipping blocked path {f.path}")
+                    log.info("archival_sweep: skipping blocked path %s", f.path)
                     continue
                 raw_path = f"raw/{folder_date_str}/{f.name}"
                 content = f.decoded_content.decode()
@@ -154,21 +139,18 @@ async def archival_sweep() -> list[str]:
                 repo.delete_file(f.path, f"monogram: archive sweep — moved to raw/", f.sha)
             moved.append(folder_date_str)
         except Exception as e:
-            print(f"archival_sweep error for {folder_date_str}: {e}")
+            log.warning("archival_sweep error for %s: %s", folder_date_str, e)
 
     return moved
 
 
 async def run_weekly_job(push_to_telegram: bool = True, force: bool = False) -> dict:
-    """Execute the full Sunday 21:00 job.
-
-    `force=True` runs regardless of weekday (useful for manual catch-up).
-    """
+    """`force=True` runs regardless of weekday (manual catch-up)."""
     from .runlog import log_run
 
     now = datetime.now(timezone.utc)
     if not force and now.weekday() != 6:
-        print(f"weekly job: skipping, today is {now.strftime('%A')} not Sunday")
+        log.info("weekly job: skipping, today is %s not Sunday", now.strftime("%A"))
         return {"report_generated": False, "folders_archived": [], "skipped": True}
 
     with log_run("weekly") as status:
@@ -179,9 +161,7 @@ async def run_weekly_job(push_to_telegram: bool = True, force: bool = False) -> 
             "lint": "",
         }
 
-        # Lint FIRST — so report can include health-check section, and
-        # self-healing writes (index regen, confidence decay) are committed
-        # before the report references them.
+        # Lint first so self-healing writes land before the report references them.
         from .wiki_lint import format_lint_section, run_lint
 
         lint_report = run_lint()
@@ -199,13 +179,16 @@ async def run_weekly_job(push_to_telegram: bool = True, force: bool = False) -> 
         archived = await archival_sweep()
         summary["folders_archived"] = archived
 
-        if report and push_to_telegram:
+        # Skip push (not commit) if this week was already pushed — same double-fire guard as morning.
+        marker = "log/last-weekly-push"
+        week_label = _iso_week_label(_last_monday(now))
+        already_pushed = safe_read(marker).strip() == week_label
+        if report and push_to_telegram and not already_pushed:
             try:
                 from .bot import push_text
-                monday = _last_monday(now)
-                week_label = _iso_week_label(monday)
                 await push_text(f"📅 Weekly report — {week_label}\n\n{report}")
                 summary["report_pushed"] = True
+                github_store.write(marker, week_label, f"monogram: weekly push marker {week_label}")
             except Exception as e:
                 summary["push_error"] = f"{type(e).__name__}: {e}"
 

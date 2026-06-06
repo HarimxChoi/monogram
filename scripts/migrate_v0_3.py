@@ -1,4 +1,4 @@
-"""v0.3 fresh-repo skeleton initializer.
+"""Fresh-repo skeleton initializer.
 
 Assumes example-org/mono is EMPTY. Creates the full folder structure with
 .gitkeep files, writes config.md with default values, creates life/*.md

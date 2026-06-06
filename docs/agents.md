@@ -92,20 +92,27 @@ from typing import Literal
 class Classification(BaseModel):
     drop_type: Literal[
         "task", "deadline", "technical_link", "paper",
-        "personal_thought", "query", "ambiguous"
+        "personal_thought", "life_item", "credential",
+        "query", "ambiguous",
     ]
-    target_path: str = Field(
-        description="Relative path in repo, e.g. scheduler/projects/paper-a.md"
-    )
-    target_exists: bool = Field(
-        description="True if target_path already exists in MEMORY.md"
-    )
+    target_kind: Literal["project", "life", "wiki", "credential", "daily_only"]
+    life_area: str | None = None        # set only when target_kind == "life"
+    slug: str                           # validated to [a-z0-9-]+
     confidence: Literal["high", "medium", "low"]
-    tags: list[str] = Field(default_factory=list, max_length=5)
+    tags: list[str] = Field(default_factory=list)
     reasoning: str = Field(
-        max_length=200,
         description="One-line rationale (logged, not shown to user)"
     )
+
+    @property
+    def target_path(self) -> str:
+        # Derived, never emitted by the LLM:
+        #   project    → projects/<slug>.md
+        #   life       → life/<life_area>.md
+        #   wiki       → wiki/<slug>.md
+        #   credential → life/credentials/<slug>.md
+        #   daily_only → ""  (drops.md only)
+        return derive_path(self.target_kind, self.slug, self.life_area)
 ```
 
 ### System Prompt
@@ -115,12 +122,13 @@ You are the classifier stage of Monogram's pipeline.
 
 Given an inbound payload, determine:
 1. What kind of content this is (drop_type)
-2. Where it should live (target_path)
-3. Whether the target already exists (check MEMORY.md pointers)
-4. Confidence in the classification (high/medium/low)
+2. Where it should live (target_kind + slug, or life_area when life)
+3. Confidence in the classification (high/medium/low)
 
-Routing rules are in SCHEMA.md "Source Types → Destination" section.
-Follow them exactly — do not invent new categories.
+Emit target_kind + (slug | life_area) only — never a raw path; the path is
+derived. Routing rules (the five target_kind values) are embedded in the
+prompt, with the user's life_area list injected at runtime. Do not invent
+new categories.
 
 If confidence is low, the verifier will request reclassification
 with thinking enabled. Do not pad low-confidence outputs with extra
@@ -283,126 +291,102 @@ Output valid JSON matching VerifyResult schema.
 
 **File:** `src/monogram/agents/writer.py`
 **Model:** none — deterministic Python
-**Input:** ExtractedPayload + VerifyResult + target file state
-**Output:** commit SHA (single git commit covering all writes)
+**Input:** ExtractedPayload + VerifyResult + Classification + preloaded file state
+**Output:** `FileChange` (a `writes` dict + commit message). The commit itself is performed by the caller (`listener` / `bot`), not the Writer.
 
 ### Behavior
 
-Per the 2×3 grid (see `docs/architecture.md` §2 and `docs/vault-layout.md`),
-every drop produces writes in up to 5 paths, all committed atomically.
+Per the 2x3 grid (see `docs/architecture.md` and `docs/vault-layout.md`), one
+drop stages writes across up to ~5 paths. The Writer only builds the
+`FileChange` — it has no git side effect.
 
 ```python
-# pseudocode
+# pseudocode — mirrors writer.run()
 
-def run(drop, classification, payload, verify_result):
-    if not verify_result.ok and not verify_result.escalate:
-        # hard block — ask user
-        return AskUser(payload, verify_result)
+async def run(extraction, verification, classification,
+              existing_target="", existing_memory="", existing_drops="",
+              existing_decisions="", existing_wiki_index=""):
+    today = utcnow().strftime("%Y-%m-%d")
+    writes: dict[str, str] = {}                 # path -> content
+    target_path = classification.target_path    # derived from target_kind
+    target_kind = classification.target_kind
 
-    today = drop.timestamp.strftime("%Y-%m-%d")
-    staged_writes: dict[str, str] = {}   # path -> content
-    decision_entry = start_decision_entry(drop, classification, verify_result)
+    # 1. Stable-state write — dispatched on target_kind
+    if target_kind == "project":
+        writes[target_path] = serialize(meta, render_project(extraction))   # OVERWRITE
+    elif target_kind == "life":
+        writes[target_path] = append_timestamped(existing_target, render_life(extraction))
+    elif target_kind == "wiki":
+        writes[target_path] = serialize(meta, render_wiki(extraction))      # flat wiki/<slug>.md
+        writes["wiki/index.md"] = upsert_index_line(existing_wiki_index, ...)
+        writes.update(compute_backlink_writes(...))      # tag-overlap peers, cap 5
+    elif target_kind == "credential":
+        writes[target_path] = render_credential(extraction)   # life/credentials/<slug>.md, minimal
+    # daily_only -> no stable-state write
 
-    # ── 1. ALWAYS: append to today's drops.md (temporal source) ───────────────
-    daily_path = f"daily/{today}/drops.md"
-    staged_writes[daily_path] = append_drop_entry(
-        existing=github_store.read(daily_path),
-        drop=drop,
-        classification=classification,
-    )
+    # 2. daily/<today>/drops.md — ALWAYS (credential is redacted inside the entry)
+    drops_path = f"daily/{today}/drops.md"
+    writes[drops_path] = append(existing_drops, build_drop_entry(...))
 
-    # ── 2. CONDITIONAL: stable state write ────────────────────────────────────
-    target_path = None
-    if classification.target_type == "off_topic":
-        # no stable-state change, just the drops.md append
-        pass
+    # 3. MEMORY.md pointer — only project & wiki
+    if target_kind in ("project", "wiki"):
+        writes["MEMORY.md"] = update_memory_pointer(existing_memory, target_path, ...)
 
-    elif classification.target_type == "scheduler_update":
-        target_path = f"scheduler/projects/{classification.project_name}.md"
-        staged_writes[target_path] = update_scheduler_project(
-            existing=github_store.read(target_path),
-            payload=payload,
-            verify_result=verify_result,
-        )
+    # 4. log/decisions.md — ALWAYS (credential slug/path redacted in the entry)
+    writes["log/decisions.md"] = append(existing_decisions, build_decision_entry(...))
 
-    elif classification.target_type == "wiki_entry":
-        if verify_result.target_confidence == "low":
-            target_path = f"wiki/_unlabeled/{today}-{classification.slug}.md"
-        else:
-            target_path = f"wiki/{classification.category}/{classification.slug}.md"
+    # 5. Secret-shape backstop — redact every staged write except the
+    #    credential file itself, so a classifier misroute can't leak a key.
+    for path in writes:
+        if not path.startswith("life/credentials/"):
+            writes[path] = secret_filter.redact(writes[path])
 
-        # Overwrite in place; git history preserves the prior version.
-        # YAML-level supersession linking deferred to v2.0.
-        staged_writes[target_path] = compose_wiki_entry(
-            existing=github_store.read(target_path),
-            payload=payload,
-            verify_result=verify_result,
-            classification=classification,
-        )
-
-    # ── 3. CONDITIONAL: MEMORY.md pointer update ─────────────────────────────
-    if target_path:
-        staged_writes["MEMORY.md"] = update_memory_pointer(
-            existing=github_store.read("MEMORY.md"),
-            target_path=target_path,
-            status_line=payload.short_summary(),
-            confidence=verify_result.target_confidence,
-        )
-
-    # ── 4. CONDITIONAL: _categories.json update ──────────────────────────────
-    if classification.target_type == "wiki_entry" and verify_result.target_confidence != "low":
-        staged_writes["wiki/_categories.json"] = bump_category_counter(
-            existing=github_store.read("wiki/_categories.json"),
-            category=classification.category,
-            keywords=classification.tags,
-        )
-
-    # ── 5. ALWAYS: decisions.md append (system telemetry) ────────────────────
-    staged_writes["log/decisions.md"] = append_decision_log(
-        existing=github_store.read("log/decisions.md"),
-        entry=decision_entry.finalize(writes=list(staged_writes.keys())),
-    )
-
-    # ── 6. ATOMIC COMMIT: all writes in a single commit ──────────────────────
-    commit_sha = github_store.atomic_commit(
-        writes=staged_writes,
-        message=f"monogram: {classification.drop_type} — {payload.title[:40]}",
-    )
-
-    return commit_sha
+    return FileChange(writes=writes,
+                      commit_message=build_commit_message(classification),  # slug redacted inside
+                      primary_path=target_path or drops_path,
+                      confidence=verification.target_confidence)
 ```
 
-### Atomic commit rule
+### Committing the FileChange
 
-All writes in `staged_writes` must land in **one git commit**, or nothing
-lands. `github_store.atomic_commit()` is the gate. Implementation uses the
-GitHub API `POST /repos/{owner}/{repo}/git/trees` + `git/commits` to create
-a tree with all changes, then fast-forwards main. Partial staging on network
-failure → client-side rollback (no trees persist until the commit is pushed).
+The Writer returns; the caller commits. By default that is
+`github_store.write_multi()` — one commit per file, simple and **not** atomic.
+`github_store.write_atomic()` (GitHub Git Tree API, single all-or-nothing
+commit) is implemented and available opt-in for callers that need it.
+
+### Credential backstop
+
+`life/credentials/<slug>.md` is the only path where a secret legitimately
+lives. Every other staged write — drops, MEMORY, decisions, wiki/project
+bodies, and the commit message — passes through `secret_filter.redact()`, so
+a misrouted credential cannot leak a key shape into a benign path.
 
 ### What Writer does NOT do
 
-- No LLM calls (agents.md §0 rule: Writer is deterministic)
+- No LLM calls (Writer is deterministic)
 - No supersession decisions (Verifier decides, Writer executes)
-- No category decisions (Classifier decides, Writer records)
-- No direct writes to `raw/`, `reports/`, or `_categories.json` contents
-  beyond counter bumps (those have their own write paths in other stages)
+- No git commit (the caller performs it)
 
 ### Drops carry no confidence
 
 Drops are **events**, not claims. The entry in `daily/*/drops.md` records
 *that something happened* and *how it was classified*, but carries no
-`confidence:` field of its own. Only the stable-state write (wiki entry,
-scheduler project) carries confidence metadata.
+`confidence:` field of its own. Only the stable-state write carries
+confidence metadata.
 
-Example drops.md entry format:
+Example drops.md entry (from `_build_drop_entry`):
 
 ```markdown
-## 14:32 — url
-**Source:** https://arxiv.org/abs/2501.13956
-**Classified:** wiki_entry → _refs/2025/ (high)
-**Written:** wiki/_refs/2025/zep-temporal-graph.md
-**Commit:** abc1234
+## 14:32
+**concept_drop** -> `wiki/rtmpose.md`
+RTMPose hits 500 FPS on a single GPU
+```
+
+For a credential the same slot is redacted:
+
+```markdown
+## 14:32
+**credential** -> (redacted)
 ```
 
 Event record. No confidence. Never superseded.

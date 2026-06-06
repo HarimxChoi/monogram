@@ -1,26 +1,4 @@
-"""Pending write-gate queue for MCP tools (v0.5.1 fix).
-
-External MCP clients should never silently rewrite user data. When a
-write-type tool is called, it enqueues a pending entry with a token and
-pushes an approval prompt to Telegram. The bot's /approve_<token> handler
-pops and executes.
-
-v0.5.1 fix: queue lives in the GitHub vault (`.monogram/pending/<token>.json`),
-not process-local memory. This is necessary because:
-- `monogram mcp-serve` is a stdio subprocess spawned by Claude Desktop / Cursor
-  (usually on the user's laptop)
-- `monogram run` is a separate long-lived process, often on a different host
-  (GCP VM, etc.)
-- Module-scope Python state doesn't cross processes; the earlier in-memory
-  queue silently lost every approval.
-
-Trade-off: each pending write creates a transient commit. The entry file
-is deleted on approve/deny or when expired (TTL 5 min). Users wanting the
-`.monogram/` directory hidden from Obsidian search add it to their vault's
-`.gitignore`.
-
-Token entropy: `secrets.token_urlsafe(16)` = 128 bits (not 32).
-"""
+"""MCP write-approval queue; persisted to GitHub vault so mcp-serve and monogram run (separate processes/hosts) share state."""
 from __future__ import annotations
 
 import json
@@ -75,9 +53,8 @@ class PendingEntry:
 
 
 def new_pending(kind: str, payload: Any, preview: str = "") -> PendingEntry:
-    """Create a pending entry backed by a GitHub commit. Returns the entry."""
     import time
-    token = secrets.token_urlsafe(16)  # 128-bit entropy, ~22 chars URL-safe
+    token = secrets.token_urlsafe(16)  # 128-bit entropy; not 32-bit
     entry = PendingEntry(
         token=token,
         kind=kind,
@@ -98,7 +75,6 @@ def new_pending(kind: str, payload: Any, preview: str = "") -> PendingEntry:
 
 
 def pop_pending(token: str) -> PendingEntry | None:
-    """Atomic consume: read + delete. Returns None if missing/expired."""
     if not token or not _looks_like_token(token):
         return None
     content = github_store.read(_path(token))
@@ -110,7 +86,7 @@ def pop_pending(token: str) -> PendingEntry | None:
         _delete_quiet(token)
         return None
     entry = PendingEntry.from_dict(data)
-    # Delete regardless of expiry — consumed tokens are consumed tokens.
+    # Consumed tokens are always deleted, even if expired.
     _delete_quiet(token)
     if entry.expired():
         return None
@@ -118,7 +94,6 @@ def pop_pending(token: str) -> PendingEntry | None:
 
 
 def peek_pending(token: str) -> PendingEntry | None:
-    """View without consuming. Auto-removes expired entries."""
     if not token or not _looks_like_token(token):
         return None
     content = github_store.read(_path(token))
@@ -137,7 +112,6 @@ def peek_pending(token: str) -> PendingEntry | None:
 
 
 def _delete_quiet(token: str) -> None:
-    """Best-effort removal of the pending file. Swallow errors."""
     try:
         repo = github_store._repo()
         gh_entry = repo.get_contents(_path(token))
@@ -151,13 +125,11 @@ def _delete_quiet(token: str) -> None:
 
 
 def _looks_like_token(token: str) -> bool:
-    """Cheap sanity check — URL-safe base64 only."""
     if len(token) < 8 or len(token) > 64:
         return False
     return all(c.isalnum() or c in "-_" for c in token)
 
 
 def _reset_for_tests() -> None:
-    """Test-only helper. No-op at module level; per-test patching of
-    github_store handles state isolation now."""
+    """Test-only no-op; state isolation is done via per-test github_store patching."""
     pass

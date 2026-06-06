@@ -24,7 +24,7 @@ _EVAL_ROOT = Path(__file__).parent
 def eval_group():
     """Evaluation harness — cassette replay + harvest loop.
 
-    See MONOGRAM_EVAL_PLAN.md for the full design.
+    See docs/eval.md for the full design.
     """
     pass
 
@@ -94,10 +94,10 @@ def disable_fewshot_cmd():
 
 @eval_group.command("enable-few-shot")
 @click.confirmation_option(
-    prompt="Enable classifier few-shot? Per plan §10, measure for 2 weeks against pre-committed rule.",
+    prompt="Enable classifier few-shot? Measure for 2 weeks against a pre-committed rule.",
 )
 def enable_fewshot_cmd():
-    """Enable Track B — with the P7 2-week measurement rule reminder."""
+    """Enable Track B — with the 2-week measurement rule reminder."""
     from monogram.vault_config import set_config_field
     ok = set_config_field("classifier_few_shot_enabled", True)
     if ok:

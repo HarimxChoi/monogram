@@ -131,9 +131,9 @@ holds ciphertext. Regenerated on morning / weekly runs. Setup:
 
 ## What you get
 
-- **Single-commit atomic writes** via GitHub Git Tree API. No partial state.
+- **Atomic writes (opt-in)** — `write_atomic()` lands every path in one commit via the GitHub Git Tree API. The default write path commits per file.
 - **SSRF-hardened URL ingestion** — every hop validated, including CGNAT + cloud metadata ranges.
-- **Credential safety by construction** — classifier-level discriminator + verifier gate.
+- **Credential safety by construction** — classifier routing plus a writer-level secret-shape redaction backstop.
 - **Observability** — one JSONL line per run, p50/p95/p99 on demand, `/stats` on Telegram.
 - **Backup isolation** — separate PAT + monthly restore drill in CI.
 - **LLM pluggability** — Gemini / Anthropic / OpenAI / Ollama / custom, per-tier.

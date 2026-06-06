@@ -55,6 +55,7 @@ dependencies = [
     # imports we don't want to ship in v0.6.0.
     "cryptography>=42.0",
     "jinja2>=3.1",
+    "pynacl>=1.5",   # encrypts GitHub Actions secrets (monogram setup-actions)
 ]
 
 [project.optional-dependencies]
@@ -63,24 +64,35 @@ webui-self-host = ["aiohttp>=3.13.4"]  # >=3.13.4: CVE-2026-22815/34513-34520/34
 dev             = ["pytest>=7.0", "pytest-asyncio>=0.23", "pillow>=10.0", "ruff>=0.5", "pip-audit>=2.7"]
 eval            = ["pytest>=7.4", "pytest-xdist>=3.5", "pytest-asyncio>=0.23"]
 eval-nlp        = ["mono-gram[eval]", "spacy>=3.7"]
+# Semantic search (P1). numpy only accelerates query-time scoring — reindex and
+# the int8 encode/decode path are stdlib-only, so this stays optional.
+semantic        = ["numpy>=1.24"]
+# Local embedding backends — run on the GitHub Actions CPU, no torch, no API key:
+#   semantic-gemma → EmbeddingGemma-300m via onnxruntime (default model)
+#   semantic-local → fastembed catalog models (BAAI/bge-m3, multilingual-e5, ...)
+semantic-gemma  = ["onnxruntime>=1.17", "tokenizers>=0.15", "huggingface-hub>=0.23", "numpy>=1.24"]
+semantic-local  = ["fastembed>=0.4"]
+# Cross-encoder rerank (ms-marco-MiniLM-L-6-v2 via onnxruntime; same no-torch stack)
+semantic-rerank = ["onnxruntime>=1.17", "tokenizers>=0.15", "huggingface-hub>=0.23", "numpy>=1.24"]
 
-# v0.8: ingestion extras — install what you need
-#   pip install 'mono-gram[ingestion-video]'   # YouTube, Instagram, TikTok
+# Ingestion extras — install what you need
+#   pip install 'mono-gram[ingestion-video]'     # YouTube, Instagram, TikTok
 #   pip install 'mono-gram[ingestion-research]'  # arXiv + Semantic Scholar
-#   pip install 'mono-gram[ingestion-pdf]'     # native PDF fast path
-#   pip install 'mono-gram[ingestion-pdf-complex]'  # Marker for complex PDFs
-#   pip install 'mono-gram[ingestion-office]'  # docx/pptx/xlsx via MarkItDown
-#   pip install 'mono-gram[ingestion-all]'     # everything except complex-pdf + whisper
+#   pip install 'mono-gram[ingestion-pdf]'       # native PDF text (PyMuPDF4LLM)
+#   pip install 'mono-gram[ingestion-hwp]'       # HWP/HWPX text (rhwp-python)
+#   pip install 'mono-gram[ingestion-office]'    # docx/pptx/xlsx via MarkItDown
+#   pip install 'mono-gram[ingestion-all]'       # everything except whisper
 ingestion-video    = ["yt-dlp>=2026.1", "youtube-transcript-api>=1.0"]
 ingestion-research = ["arxiv>=2.0", "httpx>=0.25"]
 ingestion-pdf      = ["pymupdf4llm>=0.0.17"]
-ingestion-pdf-complex = ["marker-pdf>=1.0"]
+ingestion-hwp      = ["rhwp-python>=0.1"]
 ingestion-office   = ["markitdown>=0.0.1"]
 ingestion-whisper  = ["openai-whisper>=20231117"]
 ingestion-all = [
     "mono-gram[ingestion-video]",
     "mono-gram[ingestion-research]",
     "mono-gram[ingestion-pdf]",
+    "mono-gram[ingestion-hwp]",
     "mono-gram[ingestion-office]",
 ]
 

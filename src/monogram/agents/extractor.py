@@ -1,18 +1,13 @@
-"""Stage 3 — Extractor. See docs/agents.md §3.
-
-Real implementation (Phase D). Calls Flash-Lite with per-drop-type schema
-selection, returns the appropriate ExtractedPayload variant.
-
-v0.7 (D1-A): passes agent_tag="extractor" so eval cassette routes calls
-to evals/cassettes/extractor.json.
-"""
+"""Stage 3 — Extractor."""
 from __future__ import annotations
 
+import json
+import logging
 from typing import Literal, Type, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-import json
+log = logging.getLogger("monogram.extractor")
 
 from ..llm import complete
 from .classifier import Classification
@@ -67,7 +62,6 @@ class QueryIntent(BaseModel):
 
 
 class LifeEntry(BaseModel):
-    """A single life-area entry — shopping item, meeting note, place, etc."""
     kind: Literal["life_entry"] = "life_entry"
     title: str = Field(description="Short title, becomes the H3 in life/<area>.md")
     content: str = Field(description="The full content of the entry")
@@ -75,7 +69,6 @@ class LifeEntry(BaseModel):
 
 
 class CredentialEntry(BaseModel):
-    """A credential capture — stored but never echoed back in logs/briefs."""
     kind: Literal["credential_entry"] = "credential_entry"
     label: str = Field(description="Human label — NOT the secret value itself")
     body: str = Field(description="The credential content, as-is")
@@ -109,7 +102,6 @@ async def run(
     *,
     model_override: str | None = None,
 ) -> ExtractedPayload:
-    """Extract structured fields based on classification.drop_type."""
     if classification is None:
         return PersonalLog(content=payload)
 
@@ -128,11 +120,18 @@ async def run(
     if model_override:
         kwargs["model"] = model_override
 
-    raw = await complete(**kwargs)
-    data = json.loads(raw)
-    # LLM may return wrong kind value (e.g. "task" instead of "project_update");
-    # override with the schema's default since kind is a discriminator, not LLM-generated.
-    kind_field = schema.model_fields.get("kind")
-    if kind_field is not None and kind_field.default is not None:
-        data["kind"] = kind_field.default
-    return schema.model_validate(data)
+    for attempt in range(2):
+        if attempt == 1:
+            kwargs["temperature"] = 0.5  # vary a bad parse that may be deterministic
+        raw = await complete(**kwargs)
+        try:
+            data = json.loads(raw)
+            # kind is a discriminator, not LLM-generated — force the schema default so the union validates.
+            kind_field = schema.model_fields.get("kind")
+            if kind_field is not None and kind_field.default is not None:
+                data["kind"] = kind_field.default
+            return schema.model_validate(data)
+        except (json.JSONDecodeError, ValidationError) as e:
+            log.warning("extractor: invalid output (attempt %d/2): %s", attempt + 1, e)
+    log.error("extractor: parse failed twice; falling back to PersonalLog")
+    return PersonalLog(content=payload)

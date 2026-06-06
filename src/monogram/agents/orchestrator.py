@@ -1,12 +1,4 @@
-"""Stage 1 — Orchestrator. See docs/agents.md §1.
-
-v0.7 (D1-A): passes agent_tag="orchestrator" so eval cassette routes calls
-to evals/cassettes/orchestrator.json.
-
-Note: the P1 ablation study (§6.4 of the eval plan) tests whether this
-stage contributes anything. If <2% of fixtures route differently with
-orchestrator stubbed, delete this file and save 1 LLM call per drop.
-"""
+"""Stage 1 — Orchestrator."""
 from __future__ import annotations
 
 from typing import Literal
@@ -51,7 +43,6 @@ class PipelinePlan(BaseModel):
 
 
 async def run(payload: str) -> PipelinePlan:
-    """Classify an inbound payload into a PipelinePlan."""
     return await extract(
         prompt=payload,
         schema=PipelinePlan,

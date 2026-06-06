@@ -1,8 +1,4 @@
-"""Push-to-Telegram helper from non-bot code (MCP tool handlers, etc.).
-
-Uses aiogram one-shot Bot inside `async with` so aiohttp session closes
-cleanly. Caller must be in an asyncio context.
-"""
+"""Push-to-Telegram from non-bot code; one-shot Bot ensures aiohttp session closes cleanly."""
 from __future__ import annotations
 
 import logging
@@ -13,7 +9,6 @@ log = logging.getLogger("monogram.bot_notify")
 
 
 async def push_to_telegram(text: str) -> bool:
-    """Push a message to the configured user. Returns True on success."""
     try:
         from aiogram.client.bot import Bot
     except Exception as e:

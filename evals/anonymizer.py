@@ -9,7 +9,7 @@ Four layers, run in order:
   Layer 4: residual-PII guard — if anything still matches strict PII regex,
            raise ResidualPII and caller skips the row.
 
-See MONOGRAM_EVAL_PLAN.md §7 for the design rationale.
+See docs/eval.md for the design rationale.
 
 Dependencies:
     Required: stdlib only (re, unicodedata).

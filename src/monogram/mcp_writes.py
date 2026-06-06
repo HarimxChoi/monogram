@@ -1,9 +1,4 @@
-"""v0.4b: MCP write-tool implementations.
-
-Write-type MCP tools enqueue via mcp_pending and are executed by the
-bot's /approve_<token> handler. This module holds the kind-specific
-execution logic the handler dispatches to.
-"""
+"""MCP write-tool implementations; all writes are enqueued via mcp_pending and require Telegram approval."""
 from __future__ import annotations
 
 import json
@@ -24,11 +19,6 @@ _SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 async def add_wiki_entry_pending(
     slug: str, title: str, body: str, tags: list[str] | None = None
 ) -> str:
-    """Enqueue an add-wiki-entry write + push Telegram approval prompt.
-
-    Called directly by the MCP tool handler. Validates input; returns
-    a token message for the MCP caller.
-    """
     from .bot_notify import push_to_telegram
     from .mcp_pending import new_pending
 
@@ -61,16 +51,14 @@ async def add_wiki_entry_pending(
 
 
 async def commit_wiki_entry(payload: dict) -> tuple[bool, str]:
-    """Actually write the wiki entry to the repo. Called by the bot's
-    /approve_<token> handler. Returns (ok, summary).
-    """
+    """Called by /approve_<token> handler. Returns (ok, summary)."""
     slug = payload["slug"]
     title = payload["title"]
     body = payload["body"]
     tags = payload.get("tags", [])
 
     path = f"wiki/{slug}.md"
-    # Don't silently overwrite if the entry already exists — surface and abort
+    # Never silently overwrite an existing entry.
     existing = safe_read(path)
     if existing:
         return False, f"wiki/{slug}.md already exists — not overwriting"
@@ -82,10 +70,8 @@ async def commit_wiki_entry(payload: dict) -> tuple[bool, str]:
     if not ok:
         return False, f"write failed: {path}"
 
-    # Update wiki/index.md incrementally
     existing_index = safe_read("wiki/index.md")
-    # Use the same line format as Writer for consistency with backlinks/lint
-    # We don't have a ConceptDrop here — inline the expected format:
+    # Must match Writer's line format for backlink/lint consistency.
     tag_str = " ".join(f"#{t}" for t in tags[:5]) if tags else ""
     from .agents.writer import _today
     idx_line = f"- [[{slug}]] — {title[:60]} [{tag_str}] ({_today()})"

@@ -1,14 +1,4 @@
-"""Stage 5 — Writer (v0.3). See docs/agents.md §5.
-
-Pure Python, no LLM. Produces a FileChange containing ALL paths for
-one atomic commit. Dispatches on classification.target_kind:
-
-  project     → projects/<slug>.md OVERWRITE + MEMORY pointer + drops + decisions
-  life        → life/<area>.md APPEND (timestamped) + drops + decisions (no MEMORY)
-  wiki        → wiki/<slug>.md OVERWRITE + wiki/index.md APPEND + MEMORY + drops + decisions
-  credential  → life/credentials/<slug>.md OVERWRITE (minimal) + drops (REDACTED) + decisions (slug redacted). NO MEMORY pointer.
-  daily_only  → drops.md + decisions.md only
-"""
+"""Stage 5 — Writer. Pure Python, no LLM. Produces a FileChange for atomic commit."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -16,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .. import github_store
+from ..secret_filter import redact
 from .classifier import Classification
 from .extractor import (
     ConceptDrop,
@@ -74,7 +65,6 @@ def _render_wiki(payload) -> str:
 
 
 def _render_life_entry(payload, slug: str) -> str:
-    """Timestamped H3 entry for append to life/<area>.md."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
     if isinstance(payload, LifeEntry):
         title = payload.title or slug
@@ -82,14 +72,12 @@ def _render_life_entry(payload, slug: str) -> str:
         if payload.context:
             parts.append(f"\n_Context: {payload.context}_")
         return "\n".join(parts) + "\n"
-    # Fallback for mis-routed payloads
     text = _render_fallback(payload)
     return f"## {ts} — {slug}\n\n{text}\n"
 
 
 def _render_credential(payload) -> str:
-    """Minimal body for life/credentials/<slug>.md — no frontmatter.
-    Credentials are never read again by LLM; no tags needed for retrieval."""
+    # No YAML frontmatter — credentials are never re-read by LLM so tags are useless.
     if isinstance(payload, CredentialEntry):
         return f"# {payload.label}\n\n{payload.body}\n"
     return f"# credential\n\n{_render_fallback(payload)}"
@@ -115,11 +103,7 @@ def _wiki_index_header() -> str:
 
 
 def _wiki_index_line(slug: str, payload, tags: list[str]) -> str:
-    """Canonical wiki index line. Parsed by morning_job + wiki_backlinks + lint.
-
-    Format (LOCKED):
-        - [[<slug>]] — <summary ≤60 chars> [#t1 #t2 ...] (YYYY-MM-DD)
-    """
+    # Format is LOCKED: parsed by morning_job, wiki_backlinks, and lint.
     summary = ""
     if isinstance(payload, ConceptDrop):
         summary = (payload.title or payload.summary)[:60]
@@ -132,10 +116,8 @@ def _wiki_index_line(slug: str, payload, tags: list[str]) -> str:
 
 
 def _append_or_init_wiki_index(existing: str, new_line: str) -> str:
-    """Append or replace index line. Dedup by slug (between [[ and ]] in new_line)."""
     if not existing:
         return _wiki_index_header() + new_line + "\n"
-    # Extract the slug from the new line to find+replace existing entry
     import re as _re
     m = _re.match(r"- \[\[([a-z0-9-]+)\]\]", new_line)
     slug_marker = f"[[{m.group(1)}]]" if m else None
@@ -162,10 +144,9 @@ def _summary_of(payload) -> str:
 
 
 def _build_drop_entry(payload, classification: Classification) -> str:
-    """One drop entry for daily/YYYY-MM-DD/drops.md."""
     time = _now_hhmm()
     if classification.target_kind == "credential":
-        # NEVER log the slug or content — both are sensitive
+        # Never log slug or content for credentials — both are sensitive.
         return f"## {time}\n**credential** → (redacted)\n"
     kind = getattr(payload, "kind", classification.drop_type)
     destination = classification.target_path or "daily_only"
@@ -179,7 +160,6 @@ def _update_memory_pointer(
     summary: str,
     confidence: str,
 ) -> str:
-    """Update or append a MEMORY.md pointer line."""
     name = target_path.rsplit("/", 1)[-1].replace(".md", "")
     new_line = f"{name:<20s} {target_path:<45s} {summary[:60]:<60s} [{confidence}]"
 
@@ -201,7 +181,6 @@ def _build_decision_entry(
     verification: VerifyResult,
     writes: list[str],
 ) -> str:
-    """One decision log entry. Credential slug/path are redacted."""
     now = _now_iso()
     is_cred = classification.target_kind == "credential"
     slug_display = "(redacted)" if is_cred else classification.slug
@@ -229,7 +208,8 @@ def _commit_message(classification: Classification) -> str:
             leaf = leaf[:-3]
     else:
         leaf = classification.slug
-    return f"monogram: {classification.drop_type} — {leaf[:40]}"
+    # Redact in case a misrouted credential secret survived slugify.
+    return redact(f"monogram: {classification.drop_type} — {leaf[:40]}")
 
 
 def _build_metadata(confidence: str, tags: list[str]) -> dict[str, Any]:
@@ -254,13 +234,11 @@ async def run(
     existing_decisions: str = "",
     existing_wiki_index: str = "",
 ) -> FileChange:
-    """Build ALL writes for a single atomic commit. No git side-effect."""
     today = _today()
     writes: dict[str, str] = {}
     target_path = classification.target_path
     target_kind = classification.target_kind
 
-    # ── 1. Stable-state write (kind-dispatched) ──
     if target_kind == "project" and target_path:
         metadata = _build_metadata(verification.target_confidence, classification.tags)
         body = _render_project(extraction)
@@ -277,10 +255,8 @@ async def run(
         metadata = _build_metadata(verification.target_confidence, classification.tags)
         body = _render_wiki(extraction)
         writes[target_path] = github_store.serialize_with_metadata(metadata, body)
-        # Maintain wiki/index.md
         idx_line = _wiki_index_line(classification.slug, extraction, classification.tags)
         writes["wiki/index.md"] = _append_or_init_wiki_index(existing_wiki_index, idx_line)
-        # v0.3b: auto-maintained backlinks for tag-overlap peers (cap 5)
         from ..wiki_backlinks import compute_backlink_writes
         backlink_writes = compute_backlink_writes(
             new_slug=classification.slug,
@@ -290,17 +266,14 @@ async def run(
         writes.update(backlink_writes)
 
     elif target_kind == "credential" and target_path:
-        # Minimal, no YAML frontmatter — never read again by LLM
         writes[target_path] = _render_credential(extraction)
 
-    # ── 2. daily/drops.md — ALWAYS (credential is redacted inside _build_drop_entry) ──
     drops_path = f"daily/{today}/drops.md"
     drop_entry = _build_drop_entry(extraction, classification)
     writes[drops_path] = (
         existing_drops.rstrip() + "\n" + drop_entry if existing_drops else drop_entry
     )
 
-    # ── 3. MEMORY.md — only for project and wiki (not life, not credential, not daily_only) ──
     if target_kind in ("project", "wiki") and target_path:
         writes["MEMORY.md"] = _update_memory_pointer(
             existing_memory,
@@ -309,7 +282,6 @@ async def run(
             verification.target_confidence,
         )
 
-    # ── 4. Decisions log — ALWAYS ──
     all_paths = list(writes.keys())
     decision_entry = _build_decision_entry(classification, verification, all_paths)
     writes["log/decisions.md"] = (
@@ -317,6 +289,12 @@ async def run(
         if existing_decisions
         else decision_entry
     )
+
+    # Defense-in-depth: redact secrets in case the classifier misrouted a credential drop.
+    for _path in list(writes):
+        if _path.startswith("life/credentials/"):
+            continue
+        writes[_path] = redact(writes[_path])
 
     return FileChange(
         writes=writes,

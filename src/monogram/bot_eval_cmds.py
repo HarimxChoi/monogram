@@ -1,18 +1,4 @@
-"""Telegram bot commands for eval kill-switch and few-shot control.
-
-New in v0.7. Parallels bot_config_cmds.py (LLM config) and bot_webui_cmds.py
-(web UI controls). Same authorization pattern: commands only respond to the
-configured TELEGRAM_USER_ID.
-
-Commands:
-    /eval_status              → Show effective state across 3 layers
-    /eval_enable              → Write eval_enabled: true to mono/config.md
-    /eval_disable             → Write eval_enabled: false
-    /eval_disable_few_shot    → Turn off Track B classifier few-shot
-    /eval_enable_few_shot     → Turn on Track B classifier few-shot
-                                (subject to P7 2-week rule — do not flip
-                                casually before reading docs/eval-plan.md §10)
-"""
+"""Bot commands for eval kill-switch and classifier few-shot control."""
 from __future__ import annotations
 
 import logging
@@ -31,7 +17,6 @@ router = Router(name="eval_cmds")
 
 
 def _is_owner(message: Message) -> bool:
-    """Gate commands to the configured user only."""
     try:
         cfg = load_config()
     except Exception:
@@ -57,7 +42,6 @@ async def eval_status(message: Message) -> None:
     cfg_on = cfg.eval_enabled
     few_shot_on = cfg.classifier_few_shot_enabled
 
-    # effective state: env wins over config
     effective = "DISABLED" if env_off or not cfg_on else "ENABLED"
 
     lines = [
@@ -72,7 +56,7 @@ async def eval_status(message: Message) -> None:
         "Commands:",
         "  /eval_enable           — turn eval system on (layer 3)",
         "  /eval_disable          — turn eval system off (layer 3)",
-        "  /eval_enable_few_shot  — turn on classifier few-shot (P7 rule applies)",
+        "  /eval_enable_few_shot  — turn on classifier few-shot (2-week rule applies)",
         "  /eval_disable_few_shot — turn off classifier few-shot",
     ]
     await message.answer("\n".join(lines))
@@ -130,7 +114,7 @@ async def eval_enable_few_shot(message: Message) -> None:
     if ok:
         await message.answer(
             "✓ classifier_few_shot_enabled: true\n\n"
-            "⚠️  Per eval plan §10: measure for 2 weeks against the "
+            "⚠️  Measure for 2 weeks against the "
             "pre-committed failure rule. If any of:\n"
             "  • accuracy drops >1pp vs baseline\n"
             "  • any credential fixture fails\n"

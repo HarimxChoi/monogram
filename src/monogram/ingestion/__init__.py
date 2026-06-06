@@ -1,20 +1,4 @@
-"""Ingestion dispatcher — routes a URL to the right extractor.
-
-Usage from listener:
-    from monogram.ingestion import extract_if_url, enrich_drop
-
-    enriched_text = await enrich_drop(original_drop_text)
-
-Design:
-  - Each extractor is LAZILY imported so missing optional-deps don't
-    fail at startup. If `monogram[ingestion-video]` isn't installed,
-    YouTube URLs gracefully degrade to the web extractor.
-  - Extractors return ExtractionResult. Failures return a result with
-    success=False and a warning instead of raising — we never let
-    ingestion break drop processing.
-  - Timeout cap per extraction via `ingestion_timeout_seconds` config
-    (default 10s). Slow extractor cannot block the pipeline.
-"""
+"""Ingestion dispatcher — routes a URL to the right extractor."""
 from __future__ import annotations
 
 import asyncio
@@ -25,6 +9,7 @@ from .base import (
     ExtractionResult,
     extract_urls,
     is_arxiv,
+    is_hwp,
     is_pdf_url,
     is_youtube,
 )
@@ -59,7 +44,7 @@ async def extract(url: str, timeout: float = 10.0) -> ExtractionResult:
 
 
 async def _dispatch(url: str) -> ExtractionResult:
-    """Internal: select extractor and call it. Lazy imports guard extras."""
+    """Lazy imports so missing optional-deps don't fail at startup."""
     if is_youtube(url):
         from . import youtube
         return await youtube.extract(url)
@@ -72,7 +57,10 @@ async def _dispatch(url: str) -> ExtractionResult:
         from . import pdf
         return await pdf.extract_from_url(url)
 
-    # v0.8 Tier 3: social + office URL routing
+    if is_hwp(url):
+        from . import hwp
+        return await hwp.extract_from_url(url)
+
     from . import social, office
     if social.is_instagram(url) or social.is_tiktok(url):
         return await social.extract(url)
@@ -80,21 +68,12 @@ async def _dispatch(url: str) -> ExtractionResult:
     if office.is_office_url(url):
         return await office.extract_from_url(url)
 
-    # Default: web page extraction
     from . import web
     return await web.extract(url)
 
 
 async def enrich_drop(text: str, config: Any | None = None) -> tuple[str, list[ExtractionResult]]:
-    """Extract content from any URLs in the drop text.
-
-    Returns (enriched_text, list_of_results). Caller writes each result
-    to raw/ tier and optionally uses the enriched text for the pipeline.
-
-    If config is None, uses sensible defaults. Otherwise expects a
-    vault_config with `ingestion_timeout_seconds` and
-    `ingestion_max_urls_per_drop`.
-    """
+    """Extract content from any URLs in the drop text; return (enriched_text, results)."""
     timeout = getattr(config, "ingestion_timeout_seconds", 10.0) if config else 10.0
     max_urls = getattr(config, "ingestion_max_urls_per_drop", 3) if config else 3
 
@@ -105,20 +84,15 @@ async def enrich_drop(text: str, config: Any | None = None) -> tuple[str, list[E
     log.info("ingestion: extracting %d URL(s) from drop", len(urls))
     results = await asyncio.gather(*(extract(u, timeout=timeout) for u in urls))
 
-    # Build enriched text: original + each snippet
     snippets = [r.to_pipeline_snippet() for r in results if r.text]
     enriched = text + "".join(snippets)
     return enriched, results
 
 
-# Public API re-exports ----------------------------------------------------
-
 __all__ = ["extract", "enrich_drop", "ExtractionResult", "extract_urls"]
 
 
-# Alias for code search (some places may look for `extract_if_url`)
 async def extract_if_url(url: str, timeout: float = 10.0) -> ExtractionResult | None:
-    """Convenience: return None if `url` doesn't look like one."""
     if not url or not url.startswith(("http://", "https://")):
         return None
     return await extract(url, timeout=timeout)

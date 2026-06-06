@@ -1,9 +1,4 @@
-"""Scheduled-job observability — commits a run log to log/runs/YYYY-MM-DD-<job>.md.
-
-Without this, a silent cron failure (quota exhausted, PAT revoked,
-LLM hiccup) is invisible until the next morning when no brief arrives.
-Each scheduled job records its status, duration, and error list.
-"""
+"""Scheduled-job observability — commits status/duration/errors to log/runs/."""
 from __future__ import annotations
 
 import time
@@ -16,13 +11,6 @@ from . import github_store
 
 @contextmanager
 def log_run(job_name: str) -> Iterator[dict]:
-    """Context manager that records success/failure + duration to log/runs/.
-
-    Usage:
-        with log_run("morning") as status:
-            status["brief_len"] = len(brief)
-            ...
-    """
     start = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat()
     status: dict = {"job": job_name, "started_at": started_at, "ok": True}
@@ -43,7 +31,6 @@ def _write_run_log(status: dict, duration_s: float) -> None:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     path = f"log/runs/{today}-{job}.md"
 
-    # Render known fields in a stable order, then anything extra.
     known_order = ("job", "started_at", "ok", "error")
     parts = [f"# {job} — {today}", ""]
     parts.append(f"started_at: {status['started_at']}")
@@ -60,5 +47,4 @@ def _write_run_log(status: dict, duration_s: float) -> None:
     try:
         github_store.write(path, body, f"monogram runlog: {job} {today}")
     except Exception as log_err:
-        # Logging the logger's failure — last-ditch stderr output.
         print(f"runlog write failed: {log_err}")

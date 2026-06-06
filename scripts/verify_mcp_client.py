@@ -18,6 +18,9 @@ import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+# Required subset — the server exposes more tools than these; we only
+# assert that these core ones are present (not an exact match), so adding
+# tools never breaks this check.
 EXPECTED_TOOLS = [
     "read_project",
     "list_projects",
@@ -45,8 +48,9 @@ async def verify() -> int:
 
                 tool_result = await session.list_tools()
                 names = [t.name for t in tool_result.tools]
-                if names != EXPECTED_TOOLS:
-                    print(f"FAIL  list_tools mismatch:\n      expected: {EXPECTED_TOOLS}\n      got:      {names}")
+                missing = [t for t in EXPECTED_TOOLS if t not in names]
+                if missing:
+                    print(f"FAIL  list_tools missing required tools:\n      missing:  {missing}\n      got:      {names}")
                     return 1
                 print(f"OK    list_tools  count={len(names)} names={names}")
 

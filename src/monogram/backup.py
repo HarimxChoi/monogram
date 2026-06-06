@@ -1,39 +1,4 @@
-"""Vault backup — mirror example-org/mono → example-org/mono-backup and
-restore-drill verification.
-
-Design:
-  - Separate PAT (BACKUP_GITHUB_PAT) scoped ONLY to the backup repo.
-    If the primary PAT leaks, backup stays uncompromised. If backup PAT
-    leaks, primary is safe.
-  - Backup repo = identical commit history to source (not just file
-    copy). We use Git refs-level operations: read source branch tip,
-    write same commit SHA to backup repo branch. Since GitHub stores
-    all commits globally within an org's shared object pool (with
-    different permissions gates), we can't directly cross-reference
-    commits between two repos — we replay the commit tree into the
-    backup repo.
-  - For v0.8 simplicity: `monogram backup mirror` reads source HEAD,
-    walks files in the current tree, writes them all to backup repo as
-    a single atomic commit. Not true git mirroring; close enough for
-    restore-drill purposes.
-
-Threats mitigated:
-  - Source repo compromise (ransomware on GitHub account): backup repo
-    on same account shares this risk. For real isolation, BACKUP_GITHUB_PAT
-    should belong to a SECOND GitHub account (user decides — documented
-    in SECURITY.md).
-  - Backup-to-itself misconfiguration: we refuse to mirror if source and
-    backup env vars resolve to the same repo.
-  - Silent backup failure: verify command runs a smoke test and returns
-    non-zero on failure — CI can alert.
-
-NOT YET IMPLEMENTED (v0.8.1+):
-  - Diff-based incremental mirror (full snapshot every run is wasteful
-    for large vaults)
-  - Retention policy (daily × 30, weekly × 12, monthly forever)
-  - Full-history mirror via `git clone --mirror` + `git push --mirror`
-    (needs a local git executable, which bumps dependency surface)
-"""
+"""Vault backup — mirror source repo to backup repo with a separate PAT for isolation."""
 from __future__ import annotations
 
 import logging
@@ -44,10 +9,10 @@ log = logging.getLogger("monogram.backup")
 
 
 class BackupConfig(NamedTuple):
-    """Validated pair of (source, backup) GitHub connections."""
-    source_repo: str       # e.g. "example-org/mono"
+    """Separate-PAT isolation: backup_pat scoped only to backup_repo."""
+    source_repo: str
     source_pat: str
-    backup_repo: str       # e.g. "example-org/mono-backup"
+    backup_repo: str
     backup_pat: str
 
 
@@ -56,8 +21,6 @@ class BackupMisconfigured(ValueError):
 
 
 def load_backup_config() -> BackupConfig:
-    """Read source + backup config from env and vault_config. Raises
-    BackupMisconfigured if anything's wrong."""
     from .config import load_config
 
     cfg = load_config()
@@ -80,15 +43,14 @@ def load_backup_config() -> BackupConfig:
             "PAT scoped to the backup repo only."
         )
 
-    # Guardrail: refuse backup-to-self. Case-insensitive match — GitHub
-    # treats example-org/mono and Example-Org/mono as the same repo.
+    # Refuse backup-to-self; GitHub repo names are case-insensitive.
     if backup_repo.lower() == source_repo.lower():
         raise BackupMisconfigured(
             f"backup repo must differ from source ({source_repo}). "
             "Mirroring onto the source would destroy live data."
         )
 
-    # Soft warning: same PAT for both = probably misconfigured
+    # Same PAT for both = PAT isolation defeated if either leaks.
     if backup_pat == source_pat:
         log.warning(
             "BACKUP_GITHUB_PAT equals GITHUB_PAT. Consider using a separate "
@@ -100,13 +62,6 @@ def load_backup_config() -> BackupConfig:
 
 
 def mirror() -> dict:
-    """Mirror source → backup. Returns a status dict.
-
-    Strategy:
-      1. List all files in source repo's HEAD tree
-      2. Read each file's content
-      3. Atomically write the full set to backup repo via write_atomic
-    """
     from github import Auth, Github
 
     config = load_backup_config()
@@ -117,7 +72,6 @@ def mirror() -> dict:
     source = source_client.get_repo(config.source_repo)
     backup = backup_client.get_repo(config.backup_repo)
 
-    # Collect all files recursively from source
     files = _collect_repo_files(source)
     log.info("backup.mirror: collected %d files from %s", len(files), config.source_repo)
 
@@ -128,11 +82,8 @@ def mirror() -> dict:
             "note": "source repo is empty — no mirror performed",
         }
 
-    # Atomic write to backup via Tree API
-    from .github_store import InputGitTreeElement  # local import for stability
     from github import InputGitTreeElement as _GITElement  # noqa
 
-    # Use backup repo's default branch
     backup_ref = backup.get_git_ref(f"heads/{backup.default_branch}")
     backup_parent = backup.get_git_commit(backup_ref.object.sha)
     base_tree = backup_parent.tree
@@ -160,17 +111,6 @@ def mirror() -> dict:
 
 
 def verify() -> dict:
-    """Smoke-test the backup repo.
-
-    Checks:
-      1. Both repos reachable with their PATs
-      2. Backup repo has a non-empty tree
-      3. A critical file (config.md or README.md) is present and non-empty
-      4. File count is within 5% of source count (catches partial mirror)
-
-    Returns a dict with {ok, checks[]}. Callers should exit nonzero on
-    failure (CI-friendly).
-    """
     from github import Auth, Github
 
     checks: list[dict] = []
@@ -197,13 +137,11 @@ def verify() -> dict:
         checks.append({"name": "backup_reachable", "ok": False, "err": str(e)[:200]})
         return {"ok": False, "checks": checks}
 
-    # Backup non-empty check
     if not backup_files:
         checks.append({"name": "backup_nonempty", "ok": False, "err": "backup repo is empty"})
         return {"ok": False, "checks": checks}
     checks.append({"name": "backup_nonempty", "ok": True})
 
-    # File-count delta check (±5%)
     source_n = len(source_files)
     backup_n = len(backup_files)
     if source_n > 0:
@@ -222,7 +160,6 @@ def verify() -> dict:
         "backup": backup_n,
     })
 
-    # Critical-file check: README.md or config.md present and non-empty
     critical_files = ("README.md", "config.md")
     found_critical = False
     for path in critical_files:
@@ -248,11 +185,7 @@ def verify() -> dict:
 def _collect_repo_files(
     repo, max_files: int = 5000, content: bool = True
 ) -> dict[str, str]:
-    """Walk the repo's default-branch tree and return {path: content}.
-
-    If content=False, values are empty strings (just for counting/
-    existence checks, cheaper — uses recursive tree API which is 1 call).
-    """
+    """content=False uses recursive tree API (1 call) for cheap existence checks."""
     from github.GithubException import GithubException
 
     try:
@@ -282,21 +215,18 @@ def _collect_repo_files(
     return files
 
 
-# ── CLI wiring ────────────────────────────────────────────────────────────
-
 import click
 
 
 @click.group(name="backup")
 def backup_group():
-    """Vault backup commands (v0.8)."""
+    """Vault backup commands."""
 
 
 @backup_group.command("mirror")
 @click.option("--dry-run", is_flag=True, help="Show plan without writing.")
 def backup_mirror_cmd(dry_run: bool):
-    """Mirror source vault → backup vault. Use for nightly snapshots
-    (set up cron with this command) or manual redundancy."""
+    """Mirror source vault to backup vault."""
     try:
         config = load_backup_config()
     except BackupMisconfigured as e:
@@ -327,8 +257,7 @@ def backup_mirror_cmd(dry_run: bool):
 @backup_group.command("verify")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON (CI-friendly).")
 def backup_verify_cmd(as_json: bool):
-    """Restore-drill the backup vault. Fails nonzero on any check failure
-    — suitable for monthly CI-scheduled runs."""
+    """Smoke-test the backup vault; exits nonzero on failure (CI-friendly)."""
     result = verify()
 
     if as_json:

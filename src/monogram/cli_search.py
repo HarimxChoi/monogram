@@ -1,28 +1,7 @@
-"""`monogram search` — vault search via ripgrep, with Python regex
-fallback when rg isn't on PATH.
-
-Design:
-  - ripgrep primary (2-10× faster than grep, respects .gitignore,
-    handles gitignore-style patterns natively)
-  - Python re fallback uses a local cache of the vault (auto-refreshed
-    on stale). Works in pure-pip installs.
-  - Scopes via --kind (wiki/life/daily/raw), --since (relative or
-    absolute), --raw (include raw/ tier)
-
-Command injection defense:
-  - subprocess.run with shell=False and argv list (never shell=True)
-  - user query is passed as a single argv item; ripgrep treats it as a
-    literal PATTERN, not a shell argument
-  - no os.system, no subprocess.Popen with shell=True anywhere
-
-ReDoS defense:
-  - We don't enable regex mode by default. Queries are fixed strings
-    (ripgrep's -F flag). User has to opt in with --regex.
-  - When --regex is enabled, ripgrep itself uses a finite automaton
-    engine (not backtracking) — safe against classical ReDoS.
-"""
+"""Vault search (ripgrep primary, Python fallback). shell=False+argv list prevents injection; fixed-string default (-F) prevents ReDoS."""
 from __future__ import annotations
 
+import base64
 import logging
 import re
 import shutil
@@ -37,19 +16,13 @@ log = logging.getLogger("monogram.search")
 
 
 def _vault_cache_dir() -> Path:
-    """Local cache location for the vault clone (used by Python fallback)."""
     base = Path.home() / ".cache" / "monogram" / "vault"
     base.mkdir(parents=True, exist_ok=True)
     return base
 
 
 def _refresh_vault_cache(max_age_minutes: int = 60) -> Path:
-    """Download vault files to ~/.cache/monogram/vault/ if stale.
-
-    Uses the GitHub API (same PAT as production) — not git clone.
-    This lets monogram search work without a local git binary.
-    Stale threshold: 60 minutes by default.
-    """
+    """Uses GitHub API (not git clone) so search works without a local git binary."""
     from . import github_store
 
     cache = _vault_cache_dir()
@@ -69,11 +42,12 @@ def _refresh_vault_cache(max_age_minutes: int = 60) -> Path:
     for element in tree.tree:
         if element.type != "blob":
             continue
+        dest = cache / element.path
         try:
-            raw = repo.get_contents(element.path)
-            dest = cache / element.path
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(raw.decoded_content)
+            # get_git_blob handles up to 100 MB; get_contents silently fails above 1 MB
+            blob = repo.get_git_blob(element.sha)
+            dest.write_bytes(base64.b64decode(blob.content))
         except Exception as e:
             log.debug("search: skipped %s (%s)", element.path, e)
 
@@ -82,8 +56,8 @@ def _refresh_vault_cache(max_age_minutes: int = 60) -> Path:
 
 
 def _scope_filter(path: Path, kind: str | None, include_raw: bool) -> bool:
-    """Return True if path should be searched under the given scope."""
-    rel = str(path).lstrip("/")
+    # as_posix() so "/" prefix checks work on Windows
+    rel = path.as_posix().lstrip("/")
     if not include_raw and rel.startswith("raw/"):
         return False
     if kind is None:
@@ -92,8 +66,6 @@ def _scope_filter(path: Path, kind: str | None, include_raw: bool) -> bool:
 
 
 def _since_filter(path: Path, since: str | None) -> bool:
-    """True iff file mtime is within `since`. Accepts '7d', '30d',
-    '2026-04-01' (absolute). None = no filter."""
     if since is None:
         return True
     now = datetime.now(timezone.utc)
@@ -122,7 +94,6 @@ def _search_via_ripgrep(
     include_raw: bool,
     regex: bool,
 ) -> Iterator[str]:
-    """Yield hit lines formatted "path:line_num:content"."""
     scope = str(vault_dir / kind) if kind else str(vault_dir)
 
     cmd = ["rg", "--no-heading", "--line-number", "--color=never"]
@@ -135,7 +106,7 @@ def _search_via_ripgrep(
     cmd += ["--", query, scope]
 
     try:
-        # shell=False, argv list, no string interpolation — safe
+        # shell=False + argv list; query is a single item, never interpolated
         proc = subprocess.run(
             cmd,
             capture_output=True,
@@ -147,17 +118,15 @@ def _search_via_ripgrep(
         log.warning("search: ripgrep timed out after 30s")
         return
     except FileNotFoundError:
-        # rg not installed — caller should have caught this
         return
 
     if proc.returncode not in (0, 1):  # 1 = no matches, still OK
         log.warning("search: ripgrep failed: %s", proc.stderr[:200])
         return
 
-    # Optional since-filter (ripgrep doesn't do mtime)
     for line in proc.stdout.splitlines():
         if since:
-            # Extract path from ripgrep output: <path>:<linenum>:<content>
+            # ripgrep output: <path>:<linenum>:<content>
             parts = line.split(":", 2)
             if len(parts) >= 1 and not _since_filter(Path(parts[0]), since):
                 continue
@@ -172,7 +141,6 @@ def _search_via_python_re(
     include_raw: bool,
     regex: bool,
 ) -> Iterator[str]:
-    """Pure-Python fallback. Slower, but zero external deps."""
     pattern: re.Pattern | None = None
     if regex:
         try:
@@ -195,10 +163,47 @@ def _search_via_python_re(
                         else query in line
                     )
                     if hit:
-                        rel = path.relative_to(vault_dir)
+                        rel = path.relative_to(vault_dir).as_posix()
                         yield f"{rel}:{lineno}:{line.rstrip()}"
         except OSError:
             continue
+
+
+def _run_graph(query: str, limit: int, hops: int = 1) -> None:
+    import asyncio
+
+    from . import graph_search
+
+    results = asyncio.run(graph_search.graph_search(query, k=limit, hops=hops))
+    if not results:
+        click.echo(f"No graph hits for: {query}  (run `monogram reindex` + `monogram graph` first)")
+        return
+    for r in results:
+        lbl = f" — {r['label']}" if r.get("label") else ""
+        click.echo(f"{r['score']:>6.3f}  {r['path']}{lbl}")
+        for nb in r.get("neighborhood", []):
+            click.echo(f"          ─{nb['predicate']}→ {nb['node']}")
+    click.echo(f"\n({len(results)} graph hits)")
+
+
+def _run_semantic(query: str, kind: str | None, limit: int, rerank: bool = False) -> None:
+    import asyncio
+
+    from . import semantic_index
+
+    areas = [kind] if kind else None
+    hits = asyncio.run(semantic_index.semantic_search(
+        query, k=limit, areas=areas, rerank=rerank or None
+    ))
+    if not hits:
+        click.echo(f"No semantic hits for: {query}  (run `monogram reindex` if the index is empty)")
+        return
+    for h in hits:
+        head = f" — {h['heading']}" if h.get("heading") else ""
+        click.echo(f"{h['score']:>8.0f}  {h['path']}{head}")
+        if h.get("excerpt"):
+            click.echo(f"          {h['excerpt']}")
+    click.echo(f"\n({len(hits)} semantic hits)")
 
 
 @click.command(name="search")
@@ -207,16 +212,28 @@ def _search_via_python_re(
 @click.option("--since", default=None, help="Recency filter (7d, 24h, or YYYY-MM-DD).")
 @click.option("--raw", "include_raw", is_flag=True, help="Include raw/ tier (excluded by default).")
 @click.option("--regex", is_flag=True, help="Treat QUERY as regex (default: fixed-string).")
+@click.option("--semantic", is_flag=True, help="Meaning-based hybrid search over the vector index (run `monogram reindex` first).")
+@click.option("--rerank", is_flag=True, help="Cross-encoder rerank the top hits (needs [semantic-rerank]).")
+@click.option("--graph", "graph_mode", is_flag=True, help="Graph-aware search: semantic seed → PageRank over the event graph → connected neighborhood.")
+@click.option("--hops", type=int, default=1, help="Neighborhood depth for --graph (1 or 2).")
 @click.option("--limit", type=int, default=50, help="Max hits to display.")
-def search_cmd(query, kind, since, include_raw, regex, limit):
-    """Search the vault. Uses ripgrep if available, else pure Python.
+def search_cmd(query, kind, since, include_raw, regex, semantic, rerank, graph_mode, hops, limit):
+    """Search the vault. Lexical (ripgrep/Python) by default, or semantic / graph.
 
     Examples:
 
         monogram search "pose estimation"
         monogram search "Q3 goals" --kind scheduler
-        monogram search "ran into bug" --since 7d
+        monogram search "how do I deploy the model" --semantic
+        monogram search "the model deployment work" --graph
     """
+    if graph_mode:
+        _run_graph(query, limit, hops)
+        return
+    if semantic:
+        _run_semantic(query, kind, limit, rerank)
+        return
+
     vault_dir = _refresh_vault_cache()
 
     use_rg = shutil.which("rg") is not None

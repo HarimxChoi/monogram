@@ -1,12 +1,4 @@
-"""Bot commands for editing vault config at runtime.
-
-Namespace: /config_*
-Current surface: /config_llm_* (v0.4)
-Future: /config_language, /config_category_add, etc.
-
-All editing commands are immediate for the whitelisted user — the
-Telegram bot is already authenticated by `config.telegram_user_id`.
-"""
+"""Bot commands for editing vault config at runtime (/config_llm_*)."""
 from __future__ import annotations
 
 import logging
@@ -57,7 +49,6 @@ def _parse_arg(text: str | None) -> str | None:
 async def _update_field(
     msg: Message, field_path: list[str], value: str
 ) -> None:
-    """Update dotted path in config.md frontmatter and reload cache."""
     if not _user_allowed(msg):
         return
     meta, body = _read_meta_and_body()
@@ -77,9 +68,6 @@ async def _update_field(
         )
     else:
         await msg.answer("✗ Write to config.md failed")
-
-
-# ── show / inspect ──
 
 
 @router.message(Command("config_llm"))
@@ -114,9 +102,6 @@ async def llm_help(msg: Message):
         )
         return
     await msg.answer(format_endpoint_help(value))
-
-
-# ── setters ──
 
 
 @router.message(Command("config_llm_provider"))
@@ -199,13 +184,10 @@ async def set_single(msg: Message):
 async def set_base_url(msg: Message):
     if not _user_allowed(msg):
         return
-    # Explicitly allow empty string — clears the field
+    # Empty string is valid here — it clears the field.
     parts = (msg.text or "").strip().split(maxsplit=1)
     value = parts[1].strip() if len(parts) > 1 else ""
     await _update_field(msg, ["llm_base_url"], value)
-
-
-# ── test + reload ──
 
 
 @router.message(Command("config_llm_test"))

@@ -1,15 +1,4 @@
-"""`monogram stats` — pipeline health from the terminal.
-
-Prints the same content as the /stats Telegram command, with richer
-formatting (full markdown tables) for terminal viewing. Optional
---save flag writes to evals/baselines/ for drift comparison.
-
-Usage:
-    monogram stats                       # last 7d, terminal output
-    monogram stats --window 30           # last 30d
-    monogram stats --markdown            # full markdown table format
-    monogram stats --save                # write snapshot to evals/baselines/
-"""
+"""Pipeline health stats; --save writes a baseline snapshot for drift tracking."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -71,7 +60,6 @@ def stats_cmd(window, markdown, save, as_json):
     if markdown or save:
         content = stats.to_markdown()
     else:
-        # Compact terminal-friendly format
         content = _compact_render(stats)
 
     click.echo(content)
@@ -81,7 +69,6 @@ def stats_cmd(window, markdown, save, as_json):
 
 
 def _compact_render(stats) -> str:
-    """Dense one-screen summary — same info as /stats, slightly richer."""
     warmup = stats.latency.samples < 10
     lines = [
         f"Pipeline stats — last {stats.window_days}d",
@@ -122,22 +109,15 @@ def _compact_render(stats) -> str:
 
 
 def _save_baseline(stats) -> None:
-    """Write markdown snapshot to evals/baselines/<date>-stats-<sha>.md."""
     from . import github_store
     from pathlib import Path
 
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
-    short_id = now.strftime("%H%M")  # time disambiguates same-day saves
-
-    # Best effort — try to include a content-hash suffix for the commit
-    # message (mirrors the plan's intent of "commit the baseline").
+    short_id = now.strftime("%H%M")  # disambiguates same-day saves
     baseline_path = f"evals/baselines/{date_str}-stats-{short_id}.md"
     body = stats.to_markdown()
 
-    # Try vault write via github_store first (this is the canonical
-    # location). If that fails (no PAT, no connection), fall back to
-    # local filesystem so users can still capture a snapshot.
     try:
         ok = github_store.write(
             baseline_path,
@@ -150,7 +130,6 @@ def _save_baseline(stats) -> None:
     except Exception as e:
         click.echo(f"\n(vault write failed: {e} — writing local copy)", err=True)
 
-    # Local fallback
     local_dir = Path("evals/baselines")
     local_dir.mkdir(parents=True, exist_ok=True)
     local_path = local_dir / f"{date_str}-stats-{short_id}.md"

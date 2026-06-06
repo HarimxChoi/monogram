@@ -1,25 +1,4 @@
-"""Social-media extractor — Instagram + TikTok via yt-dlp.
-
-Scope for v0.8: public content only. Captions + metadata always; for
-videos, transcript via Whisper fallback if the user opted in. Private
-content (stories, private accounts) requires session cookies — not
-supported in v0.8 (private-content handling is a future opt-in that
-needs a careful credential-storage design).
-
-Instagram and TikTok both go through yt-dlp. Same code path, different
-URL detection. We return a unified ExtractionResult so the pipeline
-doesn't need to care which platform.
-
-Threat surface:
-  - yt-dlp has had code-execution CVEs historically (around the metadata
-    extractor for specific hostile sites). Stable channel with monthly
-    updates is the mitigation; Dependabot pins loosely so we catch
-    patches without unattended major bumps.
-  - Instagram rate limits aggressively. We don't download media; just
-    metadata + caption. Reduces rate-limit exposure and disk I/O.
-  - TikTok may require PO tokens for some videos (like YouTube). Graceful
-    degradation to metadata-only.
-"""
+"""Social extractor (Instagram + TikTok) via yt-dlp — metadata/caption only; yt-dlp has prior code-execution CVEs, keep on stable channel."""
 from __future__ import annotations
 
 import asyncio
@@ -52,7 +31,6 @@ def platform_for(url: str) -> str | None:
 
 
 async def extract(url: str) -> ExtractionResult:
-    """Extract caption + metadata from an Instagram or TikTok URL."""
     platform = platform_for(url)
     if not platform:
         return ExtractionResult(
@@ -63,8 +41,7 @@ async def extract(url: str) -> ExtractionResult:
             extraction_method="not_social",
         )
 
-    # Validate before yt-dlp sees it. yt-dlp will happily follow any
-    # redirect and hit loopback / cloud-metadata endpoints.
+    # SSRF: validate before yt-dlp, which follows redirects to any host including loopback.
     from .base import require_safe_url, UnsafeURLError
     try:
         require_safe_url(url)
@@ -110,13 +87,10 @@ async def extract(url: str) -> ExtractionResult:
         "platform": platform,
     }
 
-    # Hashtag extraction from caption — consistent across both platforms
     hashtags = re.findall(r"#(\w+)", caption)
     if hashtags:
         metadata["hashtags"] = hashtags[:30]
 
-    # Body text: caption + hashtag summary. Whisper fallback deferred to
-    # v0.8.1 (same rationale as youtube.py — opt-in, heavy).
     body_parts = []
     if metadata.get("title"):
         body_parts.append(str(metadata["title"]))
@@ -139,7 +113,6 @@ async def extract(url: str) -> ExtractionResult:
 
 
 async def _ytdlp_info(url: str) -> dict | None:
-    """Fetch metadata via yt-dlp with skip_download. Wrapped in a thread."""
     def _sync() -> dict | None:
         try:
             import yt_dlp
@@ -151,8 +124,7 @@ async def _ytdlp_info(url: str) -> dict | None:
             "no_warnings": True,
             "skip_download": True,
             "extract_flat": False,
-            # Explicit — never write cookies or state files to disk
-            "cookiefile": None,
+            "cookiefile": None,  # never write credential files to disk
             "cachedir": False,
         }
         try:

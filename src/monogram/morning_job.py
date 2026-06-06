@@ -1,12 +1,4 @@
-"""Morning job — runs at 08:00 daily.
-
-Step 1: Per-project update from yesterday's commits (N commits)
-Step 2: board.md update-not-regenerate (1 commit)
-Step 3: Morning brief (v0.3b: single batched Pro call, board-style, localized)
-Step 4: Push brief to Telegram via bot.push_text
-
-See docs/vault-layout.md.
-"""
+"""Morning job — runs at 08:00 daily."""
 from __future__ import annotations
 
 import re
@@ -37,7 +29,6 @@ def _today_str() -> str:
 
 
 def _list_project_files() -> list[str]:
-    """List projects/*.md files from the repo."""
     repo = github_store._repo()
     try:
         contents = repo.get_contents("projects")
@@ -51,7 +42,6 @@ def _list_project_files() -> list[str]:
 
 
 def _infer_status(existing_content: str, commits_for_project: str) -> str:
-    """Infer active/inactive/done from content + recent commits."""
     meta, _ = github_store.parse_metadata(existing_content)
     current = meta.get("status", "active")
     if current == "done":
@@ -74,7 +64,6 @@ async def update_project_from_commits(
     project_path: str,
     commits_summary: str,
 ) -> bool:
-    """Rewrite the AUTO sections of a project file from commit data."""
     existing = safe_read(project_path)
     if not existing:
         return False
@@ -122,7 +111,6 @@ async def update_project_from_commits(
 
 
 def _parse_board_sections(content: str) -> dict[str, list[str]]:
-    """Parse board.md into {section_name: [lines]}."""
     sections: dict[str, list[str]] = {}
     current = ""
     for line in content.split("\n"):
@@ -137,7 +125,6 @@ def _parse_board_sections(content: str) -> dict[str, list[str]]:
 def _update_board_line(
     lines: list[str], name: str, path: str, summary: str
 ) -> list[str]:
-    """Update a single project line in a board section, or append."""
     new_line = f"- [{name}]({path}) — {summary}"
     for i, line in enumerate(lines):
         if f"[{name}]" in line:
@@ -150,15 +137,9 @@ def _update_board_line(
 async def update_board(
     projects: list[dict],
 ) -> bool:
-    """Update (not regenerate) board.md.
-
-    Parses existing board, updates lines per project, preserves
-    unmentioned content. Follows the MEMORY.md update-not-regenerate pattern.
-    """
     existing = safe_read("board.md")
 
     if not existing:
-        # First run: generate from scratch
         lines = [f"# Board — {_today_str()}", ""]
         for section_name in ("Active", "Inactive", "Done"):
             group = [p for p in projects if p["status"] == section_name.lower()]
@@ -171,7 +152,6 @@ async def update_board(
                 lines.append("")
         content = "\n".join(lines)
     else:
-        # Update existing: parse sections, move/update lines
         header_line = existing.split("\n")[0]
         updated_header = re.sub(
             r"\d{4}-\d{2}-\d{2}", _today_str(), header_line
@@ -184,12 +164,10 @@ async def update_board(
 
         for p in projects:
             target_section = p["status"].capitalize()
-            # Remove from all sections first
             for sec_name, sec_lines in sections.items():
                 sections[sec_name] = [
                     l for l in sec_lines if f"[{p['name']}]" not in l
                 ]
-            # Add to correct section
             _update_board_line(
                 sections[target_section], p["name"], p["path"], p["summary"]
             )
@@ -208,9 +186,6 @@ async def update_board(
         content,
         f"monogram: board.md — morning update",
     )
-
-
-# ── v0.3b: board-style brief via single batched Pro call ────────────────
 
 
 @dataclass
@@ -255,7 +230,6 @@ _WIKI_INDEX_RE = re.compile(
 
 
 def _parse_life_entries(content: str, since_iso: str) -> list[tuple[str, str]]:
-    """Parse timestamped H3 headers; return entries at-or-after since_iso."""
     results = []
     for m in _LIFE_ENTRY_RE.finditer(content):
         ts_iso = f"{m.group(1)}T{m.group(2)}:00"
@@ -265,8 +239,7 @@ def _parse_life_entries(content: str, since_iso: str) -> list[tuple[str, str]]:
 
 
 def _collect_life_snapshots(yesterday: str) -> list[LifeSnapshot]:
-    """Collect yesterday's life entries per category. Credentials are
-    UNCONDITIONALLY skipped (defense in depth)."""
+    """Credentials skipped unconditionally — defense in depth."""
     cfg = load_vault_config()
     since_iso = f"{yesterday}T00:00:00"
     snapshots = []
@@ -283,7 +256,6 @@ def _collect_life_snapshots(yesterday: str) -> list[LifeSnapshot]:
 
 
 def _collect_wiki_snapshots(yesterday: str) -> list[WikiSnapshot]:
-    """Scan wiki/index.md for entries dated yesterday (fast, no repo walk)."""
     index_content = safe_read("wiki/index.md")
     if not index_content:
         return []
@@ -297,7 +269,6 @@ def _collect_wiki_snapshots(yesterday: str) -> list[WikiSnapshot]:
 
 
 def _collect_project_snapshots(yesterday: str) -> list[ProjectSnapshot]:
-    """All project files + yesterday's attributed commits + body/frontmatter."""
     project_files = _list_project_files()
     commits_content = safe_read(f"daily/{yesterday}/commits.md")
     snapshots = []
@@ -326,9 +297,6 @@ def _collect_morning_context(yesterday: str) -> MorningContext:
         life=_collect_life_snapshots(yesterday),
         wiki_new=_collect_wiki_snapshots(yesterday),
     )
-
-
-# ── Structured output schema for the Pro call ──
 
 
 class ProjectBoardEntry(BaseModel):
@@ -438,7 +406,6 @@ Return ONLY valid JSON matching MorningBriefData. No preamble.
 def _render_morning_brief(
     yesterday: str, data: MorningBriefData
 ) -> str:
-    """Render structured brief → markdown. Content already in user's language."""
     lines = [f"# Morning brief — {yesterday}", ""]
 
     if data.projects:
@@ -487,7 +454,6 @@ def _render_morning_brief(
 
 
 async def generate_morning_brief(yesterday: str) -> str | None:
-    """Generate the board-style morning brief via a single Pro call."""
     ctx = _collect_morning_context(yesterday)
 
     if not ctx.projects and not ctx.life and not ctx.wiki_new:
@@ -502,8 +468,7 @@ async def generate_morning_brief(yesterday: str) -> str | None:
             model=get_model("high"),
         )
     except Exception as e:
-        # Pro can 429 or rate-limit; fall back to a minimal English brief
-        # rather than dropping the day's summary entirely.
+        # Pro can 429/rate-limit; fall back rather than drop the day's summary.
         print(f"morning brief: Pro call failed ({e!r}); falling back to minimal brief")
         brief_data = MorningBriefData(
             projects=[
@@ -528,7 +493,6 @@ async def generate_morning_brief(yesterday: str) -> str | None:
 
     rendered = _render_morning_brief(yesterday, brief_data)
 
-    # v0.6: append /webui footer when web UI is enabled
     vcfg = load_vault_config()
     if vcfg.webui_mode != "mcp-only":
         rendered = rendered.rstrip() + "\n\n—\nDashboard: /webui\n"
@@ -543,7 +507,6 @@ async def generate_morning_brief(yesterday: str) -> str | None:
 
 
 async def run_morning_job(push_to_telegram: bool = True) -> dict:
-    """Execute the full morning job, commit outputs, optionally push brief."""
     from .runlog import log_run
 
     yesterday = _yesterday_str()
@@ -556,7 +519,6 @@ async def run_morning_job(push_to_telegram: bool = True) -> dict:
             "yesterday": yesterday,
         }
 
-        # Step 1: per-project updates from yesterday's commits
         project_files = _list_project_files()
         commits_content = safe_read(f"daily/{yesterday}/commits.md")
         project_states: list[dict] = []
@@ -578,38 +540,32 @@ async def run_morning_job(push_to_telegram: bool = True) -> dict:
                 "summary": f"{proj_status} — last updated {_today_str()}",
             })
 
-        # Step 2: board update (update-not-regenerate)
         if project_states:
             summary["board_updated"] = await update_board(project_states)
 
-        # Step 3: morning brief
         brief = await generate_morning_brief(yesterday)
         summary["brief_generated"] = brief is not None
 
-        # Step 4: push brief to Telegram (v0.2.4)
-        if brief and push_to_telegram:
+        # Skip push (not commit) if already pushed — double-fired cron shouldn't double-notify.
+        marker = "log/last-morning-push"
+        already_pushed = safe_read(marker).strip() == yesterday
+        if brief and push_to_telegram and not already_pushed:
             try:
                 from .bot import push_text
                 header = f"🌅 Morning brief — {yesterday}\n\n"
                 await push_text(header + brief)
                 summary["brief_pushed"] = True
+                github_store.write(marker, yesterday, f"monogram: morning push marker {yesterday}")
             except Exception as e:
-                # Don't fail the whole job if Telegram is unreachable —
-                # the brief is already committed to git.
                 summary["push_error"] = f"{type(e).__name__}: {e}"
 
-        # Propagate all counters into the runlog for observability
         for k, v in summary.items():
             status[k] = v
         return summary
 
 
 def _commits_for_project(project_path: str, commits_content: str) -> str:
-    """Filter commit digest lines to those relevant to `project_path`.
-
-    v0.2.6: prefer `github_repos:` frontmatter mapping when available,
-    fall back to substring match on project slug.
-    """
+    """Prefer github_repos: frontmatter mapping; fall back to slug substring match."""
     if not commits_content:
         return ""
 
@@ -619,18 +575,15 @@ def _commits_for_project(project_path: str, commits_content: str) -> str:
     hits: list[str] = []
     for line in commits_content.split("\n"):
         low = line.lower()
-        # Strong match: explicit repo mapping
         if watched_repos and any(r.lower() in low for r in watched_repos):
             hits.append(line)
             continue
-        # Weak fallback: project slug in line
         if not watched_repos and slug in low:
             hits.append(line)
     return "\n".join(hits)
 
 
 def _project_watched_repos(project_path: str) -> list[str]:
-    """Extract `github_repos:` from the project's YAML frontmatter."""
     content = safe_read(project_path)
     if not content.startswith("---"):
         return []

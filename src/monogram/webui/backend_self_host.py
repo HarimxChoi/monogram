@@ -1,12 +1,4 @@
-"""Self-host backend — aiohttp + cloudflared quick tunnel.
-
-Serves the encrypted shell over localhost, wraps with a cloudflared
-tunnel so the URL is reachable from anywhere. Quick tunnels rotate
-per restart (trycloudflare.com subdomain); for a stable URL use gcs.
-
-cloudflared binary is auto-downloaded to ~/.local/bin/cloudflared on
-first publish if missing.
-"""
+"""Self-host backend: aiohttp + cloudflared quick tunnel (rotating URL per restart)."""
 from __future__ import annotations
 
 import asyncio
@@ -36,7 +28,6 @@ _TUNNEL_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 
 def _binary_path() -> Path:
-    """Cross-platform cloudflared binary path."""
     if sys.platform.startswith("win"):
         base = Path(os.environ.get("USERPROFILE", str(Path.home()))) / ".local" / "bin"
         return base / "cloudflared.exe"
@@ -44,9 +35,8 @@ def _binary_path() -> Path:
 
 
 def _platform_key() -> tuple[str, str]:
-    sysname = platform.system().lower()  # linux, darwin, windows
+    sysname = platform.system().lower()
     mach = platform.machine().lower()
-    # Normalize
     if mach in ("x86_64", "amd64"):
         mach = "x86_64" if sysname != "windows" else "amd64"
     if mach in ("aarch64", "arm64"):
@@ -105,7 +95,6 @@ class SelfHostBackend(WebUIBackend):
             )
 
         async def refresh(request):
-            # Regenerate: re-encrypt from latest webgen + current password.
             try:
                 from ..webgen import render_bundle
                 from ..encryption_layer import wrap
@@ -142,7 +131,6 @@ class SelfHostBackend(WebUIBackend):
             stderr=asyncio.subprocess.STDOUT,
         )
 
-        # Read stdout lines until we find the tunnel URL (or give up after 30s)
         async def _read_url() -> str | None:
             assert self._tunnel_proc and self._tunnel_proc.stdout
             while True:

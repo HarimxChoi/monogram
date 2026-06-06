@@ -29,16 +29,16 @@ _MOCK_RESULT = PipelineResult(
 
 @patch("monogram.listener.run_pipeline", new_callable=AsyncMock, return_value=_MOCK_RESULT)
 @patch("monogram.listener.github_store")
-def test_handle_drop_uses_write_multi(mock_store, mock_pipeline):
-    mock_store.write_multi.return_value = True
+def test_handle_drop_uses_write_atomic(mock_store, mock_pipeline):
+    mock_store.write_atomic.return_value = True
     from monogram.listener import handle_drop
 
     reply = asyncio.run(handle_drop("mark paper-a phase 0 done"))
     assert "paper-a" in reply
     assert "committed" in reply
     assert "4 paths" in reply
-    mock_store.write_multi.assert_called_once()
-    call_args = mock_store.write_multi.call_args
+    mock_store.write_atomic.assert_called_once()
+    call_args = mock_store.write_atomic.call_args
     writes = call_args[0][0]
     assert len(writes) == 4
 
@@ -54,8 +54,8 @@ def test_handle_drop_blocked_returns_reason(mock_pipeline):
 
 @patch("monogram.listener.run_pipeline", new_callable=AsyncMock, return_value=_MOCK_RESULT)
 @patch("monogram.listener.github_store")
-def test_handle_drop_write_multi_failure(mock_store, mock_pipeline):
-    mock_store.write_multi.return_value = False
+def test_handle_drop_write_atomic_failure(mock_store, mock_pipeline):
+    mock_store.write_atomic.return_value = False
     from monogram.listener import handle_drop
 
     reply = asyncio.run(handle_drop("mark paper-a phase 0 done"))

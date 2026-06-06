@@ -100,9 +100,9 @@ Morning / weekly run 때 재생성. 설정: [docs/setup/gcp-webui.md](docs/setup
 
 ## What you get
 
-- **Single-commit atomic write**: GitHub Git Tree API. Partial state 없음.
+- **Atomic write (opt-in)**: `write_atomic()`가 GitHub Git Tree API로 전 경로를 단일 커밋. 기본 경로는 파일별 커밋.
 - **SSRF-hardened URL ingestion**: 모든 hop 검증, CGNAT + cloud metadata range 포함.
-- **Credential safety by construction**: classifier-level discriminator + verifier gate.
+- **Credential safety by construction**: classifier 라우팅 + writer 단계의 secret-shape redaction backstop.
 - **Observability**: run당 JSONL 1줄, p50/p95/p99 on demand, Telegram `/stats`.
 - **Backup isolation**: 별도 PAT + CI에서 월 1회 restore drill.
 - **LLM pluggability**: Gemini / Anthropic / OpenAI / Ollama / custom, tier별.

@@ -1,12 +1,4 @@
-"""MCP server — exposes Monogram tools to any MCP client (Claude Desktop, Cursor, ...).
-
-v0.4 surface (updated in Phase 2):
-- Reads  : read_project, list_projects, today_brief, recent_activity,
-           search_wiki, query_life, get_morning_brief,
-           current_project_state, get_board, get_llm_config
-- Writes : update_project (legacy), add_wiki_entry, set_llm_config
-           (writes gated by Telegram /approve_<token>)
-"""
+"""MCP server; write tools (add_wiki_entry, set_llm_config) are gated by Telegram /approve_<token>."""
 from __future__ import annotations
 
 import asyncio
@@ -61,13 +53,12 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="recent_activity",
-        description="Summary of recent drops and GitHub activity (v0.2 feature).",
+        description="Summary of recent drops and GitHub activity.",
         inputSchema={
             "type": "object",
             "properties": {"hours": {"type": "integer", "default": 24}},
         },
     ),
-    # v0.4b: read tools over the vault
     Tool(
         name="search_wiki",
         description="Search wiki/index.md entries by substring over slug/summary/tags.",
@@ -76,6 +67,38 @@ TOOLS: list[Tool] = [
             "properties": {
                 "query": {"type": "string"},
                 "limit": {"type": "integer", "default": 10},
+            },
+            "required": ["query"],
+        },
+    ),
+    Tool(
+        name="semantic_search",
+        description="Meaning-based HYBRID search over the whole vault (dense "
+        "embeddings + lexical BM25). Returns the most relevant notes/chunks. Run "
+        "`monogram reindex` first to build the index.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 8},
+                "kind": {
+                    "type": "string",
+                    "description": "Optional area filter: wiki/projects/life/daily/identity",
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    Tool(
+        name="graph_search",
+        description="Graph-aware search: semantic seed → PageRank over the event "
+        "graph → most relevant notes WITH their connected neighborhood "
+        "(motivated_by / documents / …). Run `monogram reindex` + `monogram graph` first.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 8},
             },
             "required": ["query"],
         },
@@ -120,7 +143,6 @@ TOOLS: list[Tool] = [
         description="Return the current board.md contents.",
         inputSchema={"type": "object", "properties": {}},
     ),
-    # v0.4b: write tool (gated)
     Tool(
         name="add_wiki_entry",
         description=(
@@ -138,7 +160,6 @@ TOOLS: list[Tool] = [
             "required": ["slug", "title", "body"],
         },
     ),
-    # v0.4a: LLM config surface
     Tool(
         name="get_llm_config",
         description="Get the current LLM configuration from mono/config.md.",
@@ -172,12 +193,8 @@ async def list_tools() -> list[Tool]:
     return TOOLS
 
 
-# ── Tool handlers (importable for tests) ─────────────────────────────────
-
-
 async def _read_project(project: str) -> str:
-    # safe_read respects never_read_paths; legacy handler never read
-    # life/credentials/, but defense in depth is cheap.
+    # safe_read blocks life/credentials/ even for legacy callers.
     content = safe_read(f"projects/{project}.md")
     return content or f"Project '{project}' not found."
 
@@ -207,10 +224,35 @@ async def _today_brief() -> str:
 
 
 async def _recent_activity(hours: int = 24) -> str:
-    return f"Recent activity (last {hours}h): v0.2 feature — github_digest not yet built."
+    return f"Recent activity (last {hours}h): github_digest not yet built."
 
 
-# ── v0.4a: LLM config tools ──
+async def _semantic_search(query: str, k: int = 8, kind: str | None = None) -> str:
+    from .semantic_index import semantic_search
+
+    hits = await semantic_search(query, k=k, areas=[kind] if kind else None)
+    if not hits:
+        return f"No semantic hits for: {query}  (run `monogram reindex` if the index is empty)"
+    lines = []
+    for h in hits:
+        head = f" — {h['heading']}" if h.get("heading") else ""
+        lines.append(f"{h['path']}{head}\n    {h.get('excerpt', '')}")
+    return "\n".join(lines)
+
+
+async def _graph_search(query: str, k: int = 8) -> str:
+    from .graph_search import graph_search
+
+    results = await graph_search(query, k=k)
+    if not results:
+        return f"No graph hits for: {query}  (run `monogram reindex` + `monogram graph` first)"
+    lines = []
+    for r in results:
+        lbl = f" — {r['label']}" if r.get("label") else ""
+        lines.append(f"{r['path']}{lbl}")
+        for nb in r.get("neighborhood", []):
+            lines.append(f"    ─{nb['predicate']}→ {nb['node']}")
+    return "\n".join(lines)
 
 
 async def _get_llm_config() -> str:
@@ -270,7 +312,8 @@ _DISPATCH = {
     "update_project": lambda a: _update_project(a["project"], a["note"]),
     "today_brief": lambda a: _today_brief(),
     "recent_activity": lambda a: _recent_activity(a.get("hours", 24)),
-    # v0.4b reads
+    "semantic_search": lambda a: _semantic_search(a["query"], a.get("k", 8), a.get("kind")),
+    "graph_search": lambda a: _graph_search(a["query"], a.get("k", 8)),
     "search_wiki": lambda a: (
         __import__("monogram.mcp_reads", fromlist=["search_wiki"]).search_wiki(
             a["query"], a.get("limit", 10)
@@ -294,9 +337,7 @@ _DISPATCH = {
     "get_board": lambda a: (
         __import__("monogram.mcp_reads", fromlist=["get_board"]).get_board()
     ),
-    # v0.4b write (gated)
     "add_wiki_entry": lambda a: _add_wiki_entry(**a),
-    # v0.4a LLM config
     "get_llm_config": lambda a: _get_llm_config(),
     "set_llm_config": lambda a: _set_llm_config(**a),
 }
@@ -305,7 +346,12 @@ _DISPATCH = {
 @server.call_tool()
 async def call_tool(name: str, args: dict) -> list[TextContent]:
     handler = _DISPATCH.get(name)
-    text = await handler(args) if handler else f"Unknown tool: {name}"
+    if handler is None:
+        return [TextContent(type="text", text=f"Unknown tool: {name}")]
+    try:
+        text = await handler(args)
+    except Exception as e:
+        text = f"{type(e).__name__}: {e}"
     return [TextContent(type="text", text=text)]
 
 

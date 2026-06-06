@@ -3,9 +3,11 @@ import sys
 
 
 def test_version():
+    from importlib.metadata import version
+
     import monogram
 
-    assert monogram.__version__ == "0.1.0"
+    assert monogram.__version__ == version("mono-gram")
 
 
 def test_cli_module_importable():
