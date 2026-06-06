@@ -376,7 +376,9 @@ def init(non_interactive: bool):
 
             hh, mm = (int(x) for x in brief_time.split(":"))
             click.echo(f"  ✓ {setup_vault_actions(hh, mm, utc_offset)}")
-        except Exception as e:
+        # SystemExit: _provision_secrets re-loads config, which exits on an
+        # incomplete .env (e.g. Telegram skipped) — must not kill the wizard.
+        except (Exception, SystemExit) as e:
             click.echo(
                 f"  ✗ Actions setup failed: {e}\n"
                 "    The PAT needs 'Workflows: write' + 'Secrets: write' on the vault "
