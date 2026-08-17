@@ -2,58 +2,28 @@
 
 English | [한국어](./README.ko.md)
 
-> Drop into Telegram. Auto-save as wiki. Wake up to a project dashboard.
+> Share it once. Monogram turns news, social posts, papers, videos, and documents into source-linked knowledge you can search and reuse.
 
 [![tests](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml)
 [![eval](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Send anything to Telegram Saved Messages — a link, a thought, a PDF,
-a photo. Monogram classifies it with a 5-stage LLM pipeline and
-atomically commits it to a private GitHub repo as structured markdown.
-Then it renders the vault as an auto-generated, encrypted dashboard
-on GCP.
+## Why
 
-Your commits auto-organize into a Kanban. Your links become a wiki.
-Your mornings get a briefing. Same vault, three views — Obsidian,
-the dashboard, and Claude Desktop via MCP.
+Useful context arrives through news, social feeds, arXiv, YouTube, reports, messages, and local documents. Bookmarks preserve the URL but rarely preserve why it mattered, and information scattered across services is hard to find when a project needs it again.
+
+## How
+
+Monogram accepts links, messages, documents, and code through Telegram Saved Messages, an Obsidian quick-capture plugin, or MCP. A five-stage pipeline — **Orchestrator → Classifier → Extractor → Verifier → Writer** — extracts the source and metadata, structures the content as Markdown, and lands every file produced by one capture in a single Git Tree commit. Git keeps the history inspectable; the dashboard and MCP expose the same vault to people and agents.
+
+## Result
+
+One share becomes searchable, versioned knowledge without manually copying it into a separate note system. The vault remains ordinary Markdown, the encrypted dashboard provides a visual view, and **13 MCP tools** expose project state, briefs, retrieval, and approval-gated writes to other agents.
 
 ![Monogram dashboard — projects, wiki, life recent, commits](docs/images/dashboard.png)
 
-Dark, information-dense, password-protected, client-side decrypted.
-Runs from a static bucket ($0 / month on GCS free tier), a self-hosted
-server, or not at all (MCP-only mode). Design reference:
-[docs/design/webui-mockup.html](docs/design/webui-mockup.html).
-
 ![Monogram walkthrough — capture, vault, dashboard, MCP](docs/images/short-demo.gif)
-
-<!--
-  ┌─────────────────────────────────────────────────────────────┐
-  │  SHORT SLOT — replace the blockquote above with:            │
-  │                                                             │
-  │  Option A (inline GIF, autoplays on GitHub, ≤5 MB):         │
-  │    ![30-second walkthrough](docs/images/short-demo.gif)     │
-  │                                                             │
-  │  Option B (clickable poster → YouTube Short):               │
-  │    <a href="https://www.youtube.com/shorts/YOUR_ID">        │
-  │      <img src="docs/images/short-poster.jpg"                │
-  │           alt="30-second walkthrough" width="400"/>         │
-  │    </a>                                                     │
-  │                                                             │
-  │  Option C (both — GIF inline + link to full Short):         │
-  │    ![30-second walkthrough](docs/images/short-demo.gif)     │
-  │                                                             │
-  │    *Full walkthrough:                                       │
-  │    [youtube.com/shorts/YOUR_ID](https://…)*                 │
-  │                                                             │
-  │  Target arc (15-30s):                                       │
-  │    0-3s   phone: drop URL in Telegram Saved Messages        │
-  │    3-10s  desktop: commit appears on GitHub                 │
-  │   10-20s  browser: dashboard auto-updates with the drop     │
-  │   20-30s  Claude Desktop: MCP query finds the same drop     │
-  └─────────────────────────────────────────────────────────────┘
--->
 
 ## Architecture
 
@@ -131,7 +101,9 @@ holds ciphertext. Regenerated on morning / weekly runs. Setup:
 
 ## What you get
 
-- **Atomic writes (opt-in)** — `write_atomic()` lands every path in one commit via the GitHub Git Tree API. The default write path commits per file.
+- **Atomic ingest commits** — every path produced by one captured item lands in a single commit through the GitHub Git Tree API.
+- **Hybrid and graph retrieval** — local embeddings, BM25/RRF, and an event graph search the same Markdown vault without coupling retrieval to the chat-model provider.
+- **13 MCP tools** — read project state, retrieve knowledge, build briefs, and request writes. Sensitive write tools require Telegram approval.
 - **SSRF-hardened URL ingestion** — every hop validated, including CGNAT + cloud metadata ranges.
 - **Credential safety by construction** — classifier routing plus a writer-level secret-shape redaction backstop.
 - **Observability** — one JSONL line per run, p50/p95/p99 on demand, `/stats` on Telegram.
@@ -161,17 +133,9 @@ CVE-2024-12425/12426 and CVE-2025-1080; see [SECURITY.md](SECURITY.md).
 ## What this is *not*
 
 - Not a chat bot — no conversational turn-taking.
-- Not a search engine — `monogram search` is grep + scope filters. Semantic search in v1.1.
+- Not a general web search engine — retrieval is scoped to the user's own vault.
 - Not multi-user — one Telegram account, one vault, one person.
 - Not a replacement for Obsidian/Notion/Logseq — it's the ingest path. Your vault renders natively in any markdown editor.
-
-## Roadmap
-
-- **v0.8 (current)** — core pipeline, ingestion, hardening, observability
-- **v1.0** — PyPI release after dogfood + RC soak
-- **v1.1** — news digest, MCP client mode, BM25 + embeddings search
-
-Roadmap: see CHANGELOG.md for shipped features.
 
 ## Links
 

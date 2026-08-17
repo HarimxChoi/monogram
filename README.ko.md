@@ -2,27 +2,26 @@
 
 [English](./README.md) | 한국어
 
-> Telegram에 보내면 자동으로 wiki에 저장, 아침엔 프로젝트 대시보드로 정리해서 보여줌
+> 한 번 공유하면 뉴스·SNS·논문·영상·문서가 출처와 함께 정리되고, 다시 검색할 수 있는 지식이 됩니다.
 
 [![tests](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/tests.yml)
 [![eval](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml/badge.svg)](https://github.com/HarimxChoi/monogram/actions/workflows/eval.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Telegram Saved Messages에 뭐든 보내기. 링크, 생각, PDF, 사진.
-5-stage LLM 파이프라인이 분류해서 private GitHub repo에 구조화된
-markdown으로 atomic commit. vault는 자동으로 만들어지고, 암호화된
-대시보드는 GCP에 올라감.
+## Why
 
-Commit은 Kanban으로 정리되고, 링크는 wiki가 되고, 아침엔 브리핑이 옴.
-같은 vault, view 3가지: Obsidian, 대시보드, MCP로 Claude Desktop.
+뉴스, SNS, arXiv, YouTube, 리포트와 문서에서 본 정보를 북마크만 해두면 왜 저장했는지 기억하기 어렵고, 서비스마다 흩어진 내용을 프로젝트에 다시 활용하기도 어려웠습니다. 형식에 관계없이 한 번 공유한 정보를 자동으로 정리하고 나중에 검색할 수 있는 개인 지식관리 시스템이 필요했습니다.
+
+## How
+
+Telegram Saved Messages, Obsidian quick capture와 MCP를 통해 링크, 메시지, 문서와 코드를 수집합니다. **Orchestrator → Classifier → Extractor → Verifier → Writer**의 5단계 파이프라인이 출처와 metadata를 추출해 Markdown으로 구조화하고, 한 번의 수집에서 바뀐 파일을 Git Tree API의 단일 commit으로 저장합니다. Git에는 원문과 변경 이력이 남고, Dashboard와 MCP는 같은 vault를 사용자와 Agent에게 보여줍니다.
+
+## Result
+
+뉴스·SNS·논문·영상과 문서를 별도로 옮겨 적지 않아도 공유 한 번으로 검색 가능하고 변경 이력이 남는 지식 workflow를 구현했습니다. 지식은 일반 Markdown으로 남고, 암호화된 Dashboard에서 확인할 수 있으며, **13개 MCP tool**로 프로젝트 상태·브리핑·검색과 승인 기반 쓰기 작업을 다른 Agent에 제공합니다.
 
 ![Monogram dashboard — projects, wiki, life recent, commits](docs/images/dashboard.png)
-
-다크 테마, 정보 밀도 높음, 비밀번호로 보호, 클라이언트 사이드 복호화.
-static bucket에서 돌리거나 (GCS 무료 티어 기준 월 $0), self-host 서버,
-아니면 아예 안 돌리고 MCP-only 모드. 디자인 레퍼런스:
-[docs/design/webui-mockup.html](docs/design/webui-mockup.html).
 
 ![Monogram walkthrough — capture, vault, dashboard, MCP](docs/images/short-demo.gif)
 
@@ -100,7 +99,9 @@ Morning / weekly run 때 재생성. 설정: [docs/setup/gcp-webui.md](docs/setup
 
 ## What you get
 
-- **Atomic write (opt-in)**: `write_atomic()`가 GitHub Git Tree API로 전 경로를 단일 커밋. 기본 경로는 파일별 커밋.
+- **원자적 ingest commit**: 한 번의 수집에서 만들어진 모든 경로를 GitHub Git Tree API의 단일 commit으로 저장.
+- **하이브리드·그래프 검색**: local embedding, BM25/RRF와 event graph로 같은 Markdown vault를 검색하며 chat model provider에 종속되지 않음.
+- **13개 MCP tool**: 프로젝트 상태·지식·브리핑 조회와 쓰기 요청 제공. 민감한 쓰기 tool은 Telegram 승인이 필요.
 - **SSRF-hardened URL ingestion**: 모든 hop 검증, CGNAT + cloud metadata range 포함.
 - **Credential safety by construction**: classifier 라우팅 + writer 단계의 secret-shape redaction backstop.
 - **Observability**: run당 JSONL 1줄, p50/p95/p99 on demand, Telegram `/stats`.
@@ -129,17 +130,9 @@ CVE-2024-12425/12426, CVE-2025-1080 hardening 적용. [SECURITY.md](SECURITY.md)
 ## What this is *not*
 
 - 챗봇 아님. 대화 turn-taking 없음.
-- 검색 엔진 아님. `monogram search`는 grep + scope filter. Semantic search는 v1.1.
+- 일반 웹 검색 엔진 아님. 검색 범위는 사용자가 저장한 vault로 한정.
 - Multi-user 아님. Telegram 계정 1개, vault 1개, 사람 1명.
 - Obsidian/Notion/Logseq 대체 아님. Ingest path임. Vault는 어떤 markdown 에디터에서도 네이티브 렌더링.
-
-## Roadmap
-
-- **v0.8 (현재)**: core pipeline, ingestion, hardening, observability
-- **v1.0**: dogfood + RC soak 후 PyPI 릴리즈
-- **v1.1**: news digest, MCP client mode, BM25 + embeddings search
-
-Roadmap: 릴리즈된 기능은 CHANGELOG.md 참고.
 
 ## Links
 
